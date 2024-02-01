@@ -1,0 +1,47 @@
+% latex table generated in R 4.3.2 by xtable 1.8-4 package
+% Thu Feb  1 15:15:26 2024
+\begin{table}[ht]
+\centering
+\begingroup\scriptsize
+\begin{tabular}{llllllll}
+ Table \# & Artifact & Population & Material 1 & Material 2 & Material 3 & Material 4 & Material 5 \\ 
+ Table \ref{Tab:Symbolism}.1 No Traded Materials &  &  &  &  &  &  &  \\ 
+   & Bone Beads & Hadza & Bone (Baboon Knuckles) &   &   &   &   \\ 
+   & Eggshell beads & Hadza & Egg Shell (Ostrich) &   &   &   &   \\ 
+   & Ostrich Shell Bead Head Band & G//ana & Egg Shell (Ostrich) &   &   &   &   \\ 
+   & Ostrich Egg Shell Waist Band & G//ana & Egg Shell (Ostrich) &   &   &   &   \\ 
+   & Ostrich Egg Shell Necklace & G//ana & Egg Shell (Ostrich) &   &   &   &   \\ 
+   & Dancing Rattle & G//ana & Insect Cacoon & Egg Shell (Ostrich) &   &   &   \\ 
+   & Bone Horn & Mbuti & Ivory or bongo horn &   &   &   &   \\ 
+   \hline
+Table \ref{Tab:Symbolism}.2 Traded Materials &  &  &  &  &  &  &  \\ 
+   & Fletched Iron Arrow & Hadza & Wood (Grewia) & Iron  & Feather (Guinea Fowl) & Poison (Plant Extract) & Animal Ligament \\ 
+   &  &  & Resin Adhesive & Ash & Animal Fat & Leather  &  \\ 
+   & Ritual Ostritch Headdress & Hadza & Feather  & Leather  & Glass &   &   \\ 
+   & Bells & Hadza & Metal  & Leather  &   &   &   \\ 
+   & Glass Beads & Hadza & Glass  &   &   &   &   \\ 
+   & Plastic Beads & Hadza & Plastic  &   &   &   &   \\ 
+   & Bronze Ring & Hadza & Copper  &   &   &   &   \\ 
+   & Bracelet & Hadza & Brass  &   &   &   &   \\ 
+   & Ritual Gourd Pot & Hadza & Gourd  & Plant Fibre & Glass  & Animal Ligament &   \\ 
+   & Musical Bow (Wire) & Hadza & Wood  & Wire  &   &   &   \\ 
+   & Cloth Doll & Hadza & Cloth  & Glass  & Stone  &   &   \\ 
+   & Pangolin Scale Necklace & Hadza & Pangolin Scale & Leather  & Glass  &   &   \\ 
+   & Tuber and Bead Necklace & Hadza & Glass  & Leather  &   &   &   \\ 
+   & Bead Necklace & Hadza & Glass  & Leather  &   &   &   \\ 
+   & Bead Arm-band & Hadza & Glass  & Leather  &   &   &   \\ 
+   & Bead Head-band & Hadza & Glass  & Leather  &   &   &   \\ 
+   & Iron Arrow & G//ana & Wood  & Iron  &   &   &   \\ 
+   & Iron Earring & G//ana & Iron  &   &   &   &   \\ 
+   & Musical Bow (Wire) & G//ana & Wood  & Wire  &   &   &   \\ 
+   & Finger Piano & G//ana & Wood  & Wire  &   &   &   \\ 
+   & Giraffe Tail Violin & G//ana & Wood  & Wire  & Leather  &   &   \\ 
+   & Tin Guitar & G//ana & Wood  & Wire  & Tin  &   &   \\ 
+   & Iron Arrow & Mbuti & Wood Raphia spp. & Poison (Plant Extract) & Leaf Fletching & Iron  & Resin Adhesive \\ 
+   & Finger Piano & Mbuti & Wood  & Wire  &   &   &   \\ 
+   & Ankle Bells & Mbuti & Metal  &   &   &   &   \\ 
+  \end{tabular}
+\endgroup
+\caption{All artefacts which constitute evidence of symbolism and contain at least one material with a moderate or strong taphonomic signature. Artefacts without traded materials first, artefacts with traded materials second.} 
+\label{Tab:Symbolism}
+\end{table}

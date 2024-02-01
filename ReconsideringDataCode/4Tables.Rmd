@@ -1,0 +1,710 @@
+---
+title: "Tables and Figures"
+output: html_notebook
+---
+
+Last but not least, we're going to generate some LaTeX summary tables for the manuscript. 
+
+First let's load our packages. 
+
+```{r}
+library(xtable) #Output Latex Tables
+library(tidyverse)
+library(rstudioapi)
+library(magrittr) #Bidirectional Pipes
+library(ggplot2)
+library(patchwork) #Easily stitch figures together with operators.
+library(tidybayes) #Tidyverse-inspired tools for STAN outputs.
+library(ggridges) #Adds ridgeplots to ggplot. 
+```
+
+Next we set our working directory. As usual, please ensure that the data is in the same directory at this script, and that you are using RStudio, else navigate to the correct directory manually. Again, ensure your current working directory contains a folder for model fits named 'fits' and a folder for tables and figures named 'TablesAndFigures'
+
+```{r}
+setwd(dirname(getActiveDocumentContext()$path))
+load("materialculture.rda") 
+```
+
+
+## Descriptive Tables
+
+For our discussion, let's make a table with only those artefacts that constitute evidence of symbolism, contain no traded components and contain at least one material with a strong or moderate taphonomic signature.
+
+```{r}
+TabNoTrade  <- dfull %>% 
+  filter(HasTaph == 1 & Symbolism == 1 & HasTraded == 0 
+) %>%
+  filter(Population == "Hadza" | Population  == "Mbuti" | Population  =="G/ana"
+         ) %>%
+  select(Artifact, Population, Mat.1, SpecificMat.1, Mat.2, SpecificMat.2, Mat.3, SpecificMat.3,
+         Mat.4, SpecificMat.4, Mat.5, SpecificMat.5) %>%
+  add_row(.before = 1) %>%
+  mutate(
+    !! paste0("Table \u0023") := c("Table \ref{Tab:Symbolism}.1 No Traded Materials",rep("", 7)), #Unicode for the hash. The LaTeX Syntax will automate reporting to our MS.
+    .before = 1
+  )
+  
+TabTrade <- 
+  dfull %>% 
+  filter(HasTaph == 1 & Symbolism == 1 & HasTraded == 1) %>%
+  filter(Population == "Hadza" | Population  == "Mbuti" | Population  =="G/ana"
+         ) %>%
+  select(Artifact, Population, Mat.1, SpecificMat.1, Mat.2, SpecificMat.2, Mat.3, SpecificMat.3,
+         Mat.4, SpecificMat.4, Mat.5, SpecificMat.5) %>%
+  add_row(.before = 1) %>%
+  mutate(
+    !! paste0("Table \u0023") := c("Table \ref{Tab:Symbolism}.2 Traded Materials",rep("", 24)), #Unicode for the hash. The LaTeX Syntax will automate reporting to our MS.
+    .before = 1
+  ) 
+
+#Iron arrows have morecomponents than other artefacts by a substantial margin. Let's put these on a new row.
+TabTrade %<>%
+  add_row(SpecificMat.1 = as.character(dfull[which(dfull$Artifact == "Fletched Iron Arrow"), "SpecificMat.6"]),
+          Mat.2 = as.character(dfull[which(dfull$Artifact == "Fletched Iron Arrow"), "Mat.7"]), 
+          Mat.3 = as.character(dfull[which(dfull$Artifact == "Fletched Iron Arrow"), "Mat.8"]),
+          Mat.4 = as.character(dfull[which(dfull$Artifact == "Fletched Iron Arrow"), "Mat.9"]),
+          SpecificMat.4 = as.character(dfull[which(dfull$Artifact == "Fletched Iron Arrow"), "SpecificMat.9"]),
+    .after = which(TabTrade$Artifact == "Fletched Iron Arrow")) 
+  
+#Lets combine both tables
+SymbolismTable <- rbind(TabNoTrade, TabTrade)         
+
+```
+
+We'll clean it up slightly first by uniting the columns.
+
+```{r}
+#Finally lets combine the material and specific material columns and make the codings prettier. 
+
+SymbolismTable %<>% #First we unite the colums
+unite("Material 1", Mat.1, SpecificMat.1, sep = " ") %>%
+unite("Material 2", Mat.2, SpecificMat.2, sep = " ") %>%
+unite("Material 3", Mat.3, SpecificMat.3, sep = " ") %>%        
+unite("Material 4", Mat.4, SpecificMat.4, sep = " ") %>%    
+unite("Material 5", Mat.5, SpecificMat.5, sep = " ")
+```
+
+Then by doing some renaming.
+
+```{r}
+
+SymbolismTable %<>%
+  mutate_if(is.character, 
+      str_replace_all, pattern = "Bone Baboon Fingers and Toes", replacement = "Bone (Baboon Knuckles)") %>%
+  mutate_if(is.character, 
+      str_replace_all, "NA NA", "") %>%
+  mutate_if(is.character, 
+      str_replace_all, "Egg Shell Ostritch Egg Shell", "Egg Shell (Ostrich)") %>%
+  mutate_if(is.character, 
+      str_replace_all,  "Egg Shell Ostrich Egg Shell", "Egg Shell (Ostrich)") %>%
+  mutate_if(is.character, 
+      str_replace_all, "NA Resin Adhesive", "Resin Adhesive") %>%
+  mutate_if(is.character, 
+      str_replace_all, "Bone Ivory or Bongo horn", "Ivory or bongo horn") %>%
+  mutate_if(is.character, 
+      str_replace_all, "Wood Typically Grewia", "Wood (Grewia)") %>%
+  mutate_if(is.character, 
+      str_replace_all, "Scale Pangolin Scale", "Pangolin Scale") %>%
+  mutate_if(is.character, 
+      str_replace_all, "Ash NA", "Ash") %>%
+  mutate_if(is.character, 
+      str_replace_all, "Plant Fibre Twine", "Plant Fibre") %>%
+  mutate_if(is.character, 
+      str_replace_all, "Feather Guinea Fowl", "Feather (Guinea Fowl)") %>%
+  mutate_if(is.character, 
+      str_replace_all, "Fat NA", "Animal Fat") %>%
+  mutate_if(is.character, 
+      str_replace_all, "Glass Various bead types", "Glass") %>%
+  mutate_if(is.character, 
+      str_replace_all, "Sap/Plant Extract Poison", "Poison (Plant Extract)") %>%
+    mutate_if(is.character, 
+      str_replace_all, "Sap/Plant Extract Paraquentina nigrescens poison", "Poison (Plant Extract)") %>%
+  mutate_if(is.character, 
+      str_replace_all, "Sinew Ligament", "Animal Ligament") %>%  
+  mutate_if(is.character, 
+      str_replace_all, "Leaf Penianthus longifolius; Garcinia ovalifolia; Bequaertiodendron lognipedicellata", "Leaf Fletching") %>%
+  mutate_if(is.character, 
+      str_replace_all, "Sap/Plant Extract Ebala tree resin", "Resin Adhesive") %>%
+  mutate_if(is.factor, 
+        str_replace_all, "G/ana", "G//ana")   
+SymbolismTable
+
+
+
+```
+
+
+Now we'll convert the table into LaTeX format and then save it so we can include it in the manuscript.
+
+```{r}
+SymbolismTableLatex <- xtable(SymbolismTable, 
+       type = latex,
+       caption = "All artefacts which constitute evidence of symbolism and contain at least one material with a moderate or strong taphonomic signature. Artefacts without traded materials first, artefacts with traded materials second.",
+       label = "Tab:Symbolism",
+       sanitize.text.function=identity
+
+)
+
+print.xtable(SymbolismTableLatex,
+       include.rownames = FALSE,
+       hline.after = c(
+           which(SymbolismTable$Artifact == "Bone Horn")
+       ),
+       
+      caption.placement = "bottom",
+      size = "scriptsize",
+      file = "TablesAndFigures/SymbolismTable.txt",
+      sanitize.text.function = function(str) gsub("ef", "\\ref", str, fixed = TRUE),
+      sanitize.colnames.function = getOption("xtable.sanitize.colnames.function", NULL),
+          )
+
+```
+
+
+## Statistics
+
+### Model Selection Summaries
+
+Now lets make a table for our model selection results.
+
+```{r}
+
+tms1 <- ms1 %>%
+  add_row(.before = 1) %>%
+  mutate(
+    !! paste0("\u0023") := c("\ref{Tab:ModelSelection}.1",rep("",2)), #Unicode for the hash. The LaTeX Syntax will automate reporting to our MS.,
+    Definition = rowname,
+    .before = 1
+  )
+
+tms2 <- ms2 %>%
+  add_row(.before = 1) %>%
+  mutate(
+    !! paste0("\u0023") := c("\ref{Tab:ModelSelection}.2",rep("",4)), #Unicode for the hash. The LaTeX Syntax will automate reporting to our MS.,
+    Definition = rowname,
+    .before = 1
+  ) 
+
+
+tms3 <- ms3 %>%
+  add_row(.before = 1) %>%
+  mutate(
+    !! paste0("\u0023") := c("\ref{Tab:ModelSelection}.3",rep("",7)), #Unicode for the hash. The LaTeX Syntax will automate reporting to our MS.,
+    Definition = rowname,
+    .before = 1
+  ) 
+
+tms4 <- ms4 %>%
+  add_row(.before = 1) %>%
+  mutate(
+    !! paste0("\u0023") := c("\ref{Tab:ModelSelection}.4",rep("",7)), #Unicode for the hash. The LaTeX Syntax will automate reporting to our MS.,
+    Definition = rowname,
+    .before = 1
+  ) 
+
+
+tms5 <- ms5 %>%
+  add_row(.before = 1) %>%
+  mutate(
+    !! paste0("\u0023") := c("\ref{Tab:ModelSelection}.5",rep("",4)), #Unicode for the hash. The LaTeX Syntax will automate reporting to our MS.,
+    Definition = rowname,
+    .before = 1
+  ) 
+
+tms <- rbind(tms1,tms2,tms3,tms4,tms5) %>%
+  select(-rowname)
+
+tms
+
+```
+
+Now let's add descriptive model defentions.
+
+```{r}
+
+tms %<>%
+  mutate_if(is.character, 
+      str_replace_all, pattern = "mt1.01", replacement = "Mean") %>%
+  mutate_if(is.character, 
+      str_replace_all, pattern = "mt1.02", replacement = "0 + Trade") %>%
+  mutate_if(is.character, 
+      str_replace_all, pattern = "mt1.03", replacement = "0 + Population") %>%
+  mutate_if(is.character, 
+      str_replace_all, pattern = "mt1.04", replacement = "(0 + Trade | Population)") %>%
+  mutate_if(is.character, 
+      str_replace_all, pattern = "mt1.05", replacement = "0 + Function1..9") %>%
+  mutate_if(is.character, 
+      str_replace_all, pattern = "mt1.06", replacement = "0 + Trade + Function1..9") %>%
+  mutate_if(is.character, 
+      str_replace_all, pattern = "mt1.07", replacement = "(0 + Trade + Function1..9 | Population)") %>%
+  mutate_if(is.character, 
+      str_replace_all, pattern = "mt1.08", replacement = "0 + Symbolism") %>%
+  mutate_if(is.character, 
+      str_replace_all, pattern = "mt1.09", replacement = "0 + Trade + Symbolism") %>%
+  mutate_if(is.character, 
+      str_replace_all, pattern = "mt1.10", replacement = "(0 + Trade + Symbolism | Population)") %>%
+  
+    mutate_if(is.character, 
+      str_replace_all, pattern = "mt2.01", replacement = "Mean") %>%
+  mutate_if(is.character, 
+      str_replace_all, pattern = "mt2.02", replacement = "0 + Trade") %>%
+  mutate_if(is.character, 
+      str_replace_all, pattern = "mt2.03", replacement = "0 + Population") %>%
+  mutate_if(is.character, 
+      str_replace_all, pattern = "mt2.04", replacement = "0 + Trade + Population")
+
+tms
+
+```
+
+Finally let's export this table into our chosen directory in LaTeX format.
+
+```{r}
+
+ModelSelectionTableLaTeX <- tms %>% 
+  xtable(include.rownames = F, 
+         label = "Tab:ModelSelection",
+         caption = "Leave-one-out model selection results including expected log-predictive density differences, standard errors and Akaike weights. 1-4 have taphonomic signature as the outcome, while 5 has component materials as the outcome. Model definitions provided in BRMs Linear syntax (in some cases reported analyses were coded using equivalent non-linear syntax, see ESM for details)", 
+         )
+
+print(ModelSelectionTableLaTeX,
+    #  only.contents = getOption("xtable.only.contents", T),
+    sanitize.text.function = function(str) gsub("ef", "\\ref", str, fixed = TRUE),
+    sanitize.colnames.function = getOption("xtable.sanitize.colnames.function", NULL),
+      include.rownames = FALSE,
+       hline.after = c(
+          -1,
+          which(ModelSelectionTableLaTeX$`#` == "\ref{Tab:ModelSelection}.1")-1,
+          which(ModelSelectionTableLaTeX$`#` == "\ref{Tab:ModelSelection}.2")-1,
+          which(ModelSelectionTableLaTeX$`#` == "\ref{Tab:ModelSelection}.3")-1,
+          which(ModelSelectionTableLaTeX$`#` == "\ref{Tab:ModelSelection}.4")-1,
+          which(ModelSelectionTableLaTeX$`#` == "\ref{Tab:ModelSelection}.5")-1
+       ),
+    caption.placement = "bottom",
+    size = "small",
+    file = "TablesAndFigures/ModelSelectionTable.txt",
+)
+
+
+```
+
+### Regression Tables
+
+#### Taphonomic Signature (Baseline & Traded)
+
+Lets start by producing a summary table for the intercept only model. We'll use 90% credibility intervals. It's tempting to use 89% intervals in order to emphasise the arbitrary nature of point estimates (see Rethinking, 2020, p.56) but I prefer 90% because it's a nice round number, sorry Richard.
+
+```{r}
+#Wrangle the data.
+
+t1.01 <- ps1.01 %>% #Pipe in our lightly wrangled posterior samples from model 1.01
+  filter(Distribution == "InterceptPosterior") %>% #Exclude the prior samples
+  mean_hdci(Density, .width = .9) %>% 
+  mutate_if(is.double, round, digits = 2) %>%
+  select(Density, .lower, .upper) %>%
+  rename(
+    "Mean P" =  Density, #Substituting !! paste0("\u03BCP") provides mu symbol but incompatible with LaTeX.
+    "5% HDCI" = .lower,
+    "95% HDCI" = .upper
+  ) %>% 
+  add_row(.before = 1) %>%
+  mutate(
+    !! paste0("Model \u0023") := c("Model \ref{Tab:TaphSigNoPop}.1",""), #Unicode for the hash. The LaTeX Syntax will automate reporting to our MS.
+    Parameter = c("","Intercept"),
+    .before = 1
+  )
+
+t1.01
+
+```
+
+Now we'll do the same for our trade model (i.e. 1.02).
+
+```{r}
+
+
+t1.02 <- ps1.02 %>% 
+  filter(HasTradedBinary != "Difference") %>%
+  group_by(HasTradedBinary) %>% 
+  mean_hdci(b_HasTraded, .width = .9) %>% 
+  mutate_if(is.double, round, digits = 2) %>%
+  select(HasTradedBinary, b_HasTraded, .lower, .upper) %>%
+  rename(
+    "Mean P" =  b_HasTraded, 
+    "5% HDCI" = .lower,
+    "95% HDCI" = .upper,
+    Parameter = HasTradedBinary
+  ) %>% 
+  add_row(.before = 1) %>%
+  mutate(
+    !! paste0("Model \u0023") := c("Model \ref{Tab:TaphSigNoPop}.2","", ""), #Unicode for the hash. The LaTeX Syntax will automate reporting to our MS.
+
+    .before = 1
+  )
+
+t1.02
+
+```
+
+Now we merge these together and save them in latex syntax.
+
+```{r}
+InterceptTradedTable <-
+  rbind(t1.01, t1.02) 
+
+InterceptTradedTableLaTeX <- InterceptTradedTable %>% 
+  xtable(include.rownames = F, 
+         label = "Tab:TaphSigNoPop",
+         caption = "Mean posterior probabilities with 90 percent credibility intervals for artefact containing at least one component material with a moderate or strong taphonomic signature. Mean-only model first, followed by estimates for artefacts with and without components attained from trade.", 
+         )
+
+print(InterceptTradedTableLaTeX,
+    #  only.contents = getOption("xtable.only.contents", T),
+    sanitize.text.function = function(str) gsub("ef", "\\ref", str, fixed = TRUE),
+    sanitize.colnames.function = getOption("xtable.sanitize.colnames.function", NULL),
+      include.rownames = FALSE,
+       hline.after = c(
+          -1,
+          0,
+          which(InterceptTradedTable$Parameter == "Intercept")
+       ),
+    caption.placement = "bottom",
+    size = "small",
+    file = "TablesAndFigures/InterceptTradedTable.txt",
+
+)
+
+```
+
+#### Taphonomic Signature (Population & Artefact)
+
+The next couple of models include population as a varying effect, so we're going to set them out a little differently. We know that trade has a substantial effect, so we won't report the model including population only and excluding trade (1.03). Instead, we'll skip to reporting the model including trade and population as a varying effect (1.04).
+
+```{r}
+t1.04 <- ps1.04 %>% 
+  group_by(Population) %>% 
+  mean_hdci(b_Population, .width = .9) %>% 
+  mutate_if(is.double, round, digits = 2) %>%
+  select(Population, b_Population, .lower, .upper) %>%
+  rename(
+    "Mean" = b_Population,
+    "5% HDCI" = .lower,
+    "95% HDCI" = .upper,
+    Parameter = Population
+  ) %>% 
+  separate("Parameter", c("Trade", "Population"), sep = "_") %>%
+  pivot_wider(names_from= "Population", values_from = c("Mean", "5% HDCI","95% HDCI"
+)) %>%
+  relocate(ends_with("Hadza"), .after = 10) %>%
+  relocate(ends_with("Gana"), .after = 10) %>%
+  #Condense HDCI columns 
+  unite("M90%CI", c("5% HDCI_Mbuti","95% HDCI_Mbuti"), sep = "-") %>%
+  unite("H90%CI", c("5% HDCI_Hadza","95% HDCI_Hadza"), sep = "-")%>%
+  unite("G90%CI", c("5% HDCI_Gana","95% HDCI_Gana"), sep = "-") %>%
+  #Add table number line
+  add_row(.before = 1) %>%
+  mutate(
+    !! paste0("Model \u0023") := c("Model \ref{Tab:TaphSigPop}.1",rep("",2)), #Unicode for the hash. The LaTeX Syntax will automate reporting to our MS.
+    .before = 1
+  ) %>%
+  #Add functon variable so we can rbind.
+  mutate(
+    Function = NA,
+  ) %>%
+  relocate("Function", .after = "Trade")
+
+#Rename a few things
+
+t1.04 %<>%
+  mutate_if(is.character, 
+      str_replace_all, pattern = "T0", replacement = "No") %>%
+  mutate_if(is.character, 
+      str_replace_all, pattern = "T1", replacement = "Yes") %>%
+  rename(
+    Traded = Trade
+  )
+
+t1.04
+
+```
+
+Not the prettiest table right now, but we'll tidy it when we convert the whole thing into latex syntax. Let's next tabulate the model summary for the model including artifact function (The full model).
+
+```{r}
+
+#Wrangle the data.
+t1.07 <- ps1.07 %>% 
+  group_by(Function) %>% 
+  mean_hdci(b_Function, .width = .9) %>% 
+  mutate_if(is.double, round, digits = 2) %>%
+  select(Function, b_Function, .lower, .upper) %>%
+    rename(
+    "Mean" =  b_Function,
+    "5% HDCI" = .lower,
+    "95% HDCI" = .upper,
+    Parameter = Function
+  ) %>%
+  separate(Parameter, c("Traded", "Population", "Function"), sep = "_") %>%
+  pivot_wider(names_from= "Population", values_from = c("Mean", "5% HDCI","95% HDCI"
+)) %>%
+  arrange(Mean_Mbuti,Traded) %>%
+  relocate(ends_with("Hadza"), .after = 11) %>%
+  relocate(ends_with("Gana"), .after = 11) %>%
+  #Condense HDCI columns 
+  unite("M90%CI", c("5% HDCI_Mbuti","95% HDCI_Mbuti"), sep = "-") %>%
+  unite("H90%CI", c("5% HDCI_Hadza","95% HDCI_Hadza"), sep = "-")%>%
+  unite("G90%CI", c("5% HDCI_Gana","95% HDCI_Gana"), sep = "-") %>%
+  #Add table number line numbers.
+  add_row(.before = 1) %>%
+  mutate(
+    !! paste0("Model \u0023") := c("Model \ref{Tab:TaphSigPop}.2",rep("",18)), #Unicode for the hash. The LaTeX Syntax will automate reporting to our MS.
+    .before = 1
+  )
+
+#Finally lets rename our function categories so they look more presentable.
+
+t1.07$Function <-
+  case_when(t1.07$Function == "ClothingProtection"~"Clothing/Protection",
+            t1.07$Function == "CookingConsumption"~"Cooking/Consumption",
+            t1.07$Function == "Foraging"~"Foraging",
+            t1.07$Function == "FurnitureShelter"~"Furniture/Shelter",
+            t1.07$Function == "GroomingHygieneMedicinal"~"Grooming/Hygiene/Medicinal",
+            t1.07$Function == "PlayLeisure"~"Play/Leisure",
+            t1.07$Function == "RitualAdornment"~"Ritual/Adornment",
+            t1.07$Function == "StorageTransport"~"Storage/Transport",
+            t1.07$Function == "ToolMatPrep"~"Manufacture",
+              )
+t1.07 %<>%
+  mutate_if(is.character, 
+      str_replace_all, pattern = "T0", replacement = "No") %>%
+  mutate_if(is.character, 
+      str_replace_all, pattern = "T1", replacement = "Yes")
+
+
+
+t1.07
+
+```
+
+Last but not least is the model which included our symbolism binary variable, in place of the function variable.
+
+```{r}
+
+t1.10 <- ps1.10 %>% 
+  group_by(Function) %>% 
+  mean_hdci(b_Function, .width = .9) %>% 
+  mutate_if(is.double, round, digits = 2) %>%
+  select(Function, b_Function, .lower, .upper) %>%
+    rename(
+    "Mean" =  b_Function,
+    "5% HDCI" = .lower,
+    "95% HDCI" = .upper,
+    Parameter = Function
+  ) %>%
+  separate(Parameter, c("Population", "Function","Traded"), sep = "_") %>%
+  pivot_wider(names_from= "Population", values_from = c("Mean", "5% HDCI","95% HDCI"
+)) %>%
+  arrange(Mean_Mbuti,Traded) %>%
+  relocate(ends_with("Hadza"), .after = 11) %>%
+  relocate(ends_with("Gana"), .after = 11) %>%
+  #Condense HDCI columns 
+  unite("M90%CI", c("5% HDCI_Mbuti","95% HDCI_Mbuti"), sep = "-") %>%
+  unite("H90%CI", c("5% HDCI_Hadza","95% HDCI_Hadza"), sep = "-")%>%
+  unite("G90%CI", c("5% HDCI_Gana","95% HDCI_Gana"), sep = "-") %>%
+  #Add table number line numbers.
+  add_row(.before = 1) %>%
+  mutate(
+    !! paste0("Model \u0023") := c("Model \ref{Tab:TaphSigPop}.3",rep("",4)), #Unicode for the hash. The LaTeX Syntax will automate reporting to our MS.
+    .before = 1
+  )
+
+
+t1.10 %<>%
+  mutate_if(is.character, 
+      str_replace_all, pattern = "T0", replacement = "No") %>%
+  mutate_if(is.character, 
+      str_replace_all, pattern = "T1", replacement = "Yes")
+
+
+```
+
+Now let's bind and export our population tables into latex.
+
+```{r}
+
+TaphSigPop <-
+  rbind(t1.04, t1.07, t1.10) 
+
+TaphSigPopLaTeX <- TaphSigPop %>% 
+  xtable(label = "Tab:TaphSigPop",
+         caption = "Mean posterior probabilities with 90 percent credibility intervals for artefact containing at least one component material with a moderate or strong taphonomic signature. All are varying effect models with population as a grouping variable. Model 1 includes trade as a predictor, model 2 includes trade and all nine function variables, model 3 includes trade and symbolism", 
+         )
+
+print(
+  TaphSigPopLaTeX,
+    #only.contents = getOption("xtable.only.contents", T),
+    sanitize.text.function = function(str) gsub("ef", "\\ref", str, fixed = TRUE),
+    sanitize.colnames.function = getOption("xtable.sanitize.colnames.function", NULL),
+    include.rownames = FALSE,
+    include.colnames = T,
+       #hline.after = 3,
+    caption.placement = "bottom",
+    size = "footnotesize",
+    file = "TablesAndFigures/TaphSigPopTable.txt",
+)
+```
+
+### Regression Tables, Material
+
+We'll report just one model for the the component material analysis, the full model. Let's wrangle the data. 
+
+```{r}
+#Construct HDCI table from posterior samples:
+ComponentMaterialsTable <- E2.04 %>%
+  select(-Est.Error) %>%
+  pivot_wider(names_from = "Population", values_from = c("Estimate", "Q5", "Q95")) %>%
+  arrange(Traded) %>%
+  relocate(ends_with("Hadza"), .after = 11) %>%
+  relocate(ends_with("G/ana"), .after = 11) %>%
+  unite("M90%CI", c("Q5_Mbuti","Q95_Mbuti"), sep = "-") %>%
+  unite("H90%CI", c("Q5_Hadza","Q95_Hadza"), sep = "-")%>%
+  unite("G90%CI", c("Q5_G/ana","Q95_G/ana"), sep = "-")
+
+
+ComponentMaterialsTable %<>% 
+  mutate_if(is.character, 
+      str_replace_all, pattern = "NoTrade", replacement = "No") %>%
+    mutate_if(is.character, 
+      str_replace_all, pattern = "Trade", replacement = "Yes")
+
+ComponentMaterialsTable
+```
+
+Then convert to LaTeX and save.
+
+```{r}
+
+ComponentMaterialsTableLaTeX <- ComponentMaterialsTable %>% 
+  xtable(label = "Tab:ComponentMaterials",
+         caption = "Mean fitted probabilities with 90 percent credibility intervals for plant-derived, animal-derived and inorganic materials with population and trade as predictors." 
+         )
+
+print(
+  ComponentMaterialsTableLaTeX,
+    #only.contents = getOption("xtable.only.contents", T),
+    sanitize.text.function = function(str) gsub("ef", "\\ref", str, fixed = TRUE),
+    sanitize.colnames.function = getOption("xtable.sanitize.colnames.function", NULL),
+    include.rownames = FALSE,
+    include.colnames = T,
+       #hline.after = 3,
+    caption.placement = "bottom",
+    size = "small",
+    file = "TablesAndFigures/ComponentMaterials.txt",
+)
+
+```
+
+### Saving Our Figures
+
+We now have all the tables we need, and that mean's we're almost finished. Finally, let's save our figures, ready to load into LaTeX. First our tool functions figures.
+
+```{r}
+
+FunPlot1 <- ps1.07  %>%
+  mutate(
+  Function = as.character(Function)) %>%
+  separate(Function, c("Traded", "Population", "Function"), sep = "_") %>%
+  filter(Traded == "T1") %>%
+   mutate_if(is.character, 
+      str_replace_all, pattern = "ClothingProtection", replacement = "Clothing/Protection") %>%
+   mutate_if(is.character, 
+      str_replace_all, pattern = "CookingConsumption", replacement = "Cooking/Consumption") %>%
+   mutate_if(is.character, 
+      str_replace_all, pattern = "FurnitureShelter", replacement = "Furniture/Shelter") %>%
+   mutate_if(is.character, 
+      str_replace_all, pattern = "GroomingHygieneMedicinal", 
+      replacement = "Grooming/Hygiene/Medicinal") %>%
+   mutate_if(is.character, 
+      str_replace_all, pattern = "RitualAdornment", replacement = "Ritual/Adornment") %>%
+   mutate_if(is.character, 
+      str_replace_all, pattern = "StorageTransport", replacement = "Storage/Transport") %>%
+   mutate_if(is.character, 
+      str_replace_all, pattern = "ToolMatPrep", replacement = "Manufacture") %>%
+   mutate_if(is.character, 
+      str_replace_all, pattern = "PlayLeisure", replacement = "Leisure") %>%
+      ggplot() + geom_density_ridges(aes(x= b_Function, y = Function, fill = Population), alpha = .5) + xlab("Probability of component with moderate/strong taphonomic signature") + ylab("Density") + scale_x_continuous(limits = c(-.03,1)) 
+  
+FunPlot2 <- ps1.07  %>%
+  mutate(
+  Function = as.character(Function)) %>%
+  separate(Function, c("Traded", "Population", "Function"), sep = "_") %>%
+  filter(Traded == "T0") %>%
+   mutate_if(is.character, 
+      str_replace_all, pattern = "ClothingProtection", replacement = "Clothing/Protection") %>%
+   mutate_if(is.character, 
+      str_replace_all, pattern = "CookingConsumption", replacement = "Cooking/Consumption") %>%
+   mutate_if(is.character, 
+      str_replace_all, pattern = "FurnitureShelter", replacement = "Furniture/Shelter") %>%
+   mutate_if(is.character, 
+      str_replace_all, pattern = "GroomingHygieneMedicinal", 
+      replacement = "Grooming/Hygiene/Medicinal") %>%
+   mutate_if(is.character, 
+      str_replace_all, pattern = "RitualAdornment", replacement = "Ritual/Adornment") %>%
+   mutate_if(is.character, 
+      str_replace_all, pattern = "StorageTransport", replacement = "Storage/Transport") %>%
+   mutate_if(is.character, 
+      str_replace_all, pattern = "ToolMatPrep", replacement = "Manufacture") %>%
+   mutate_if(is.character, 
+      str_replace_all, pattern = "PlayLeisure", replacement = "Leisure") %>%
+      ggplot() + geom_density_ridges(aes(x= b_Function, y = Function, fill = Population), alpha = .5) + xlab("Probability of component with moderate/strong taphonomic signature") + ylab("Density") + scale_x_continuous(limits = c(-.03,1)) 
+
+MuchFunPlot <- (FunPlot2 + FunPlot1 + plot_layout(
+  ncol = 1,
+  nrow = 2,
+  byrow = NULL,
+  widths = NULL,
+  heights = NULL,
+  guides = NULL,
+  tag_level = NULL,
+  design = NULL
+))
+
+ggsave(
+  plot = MuchFunPlot,
+  file = "MuchFunPlot.pdf",
+  path = "TablesAndFigures",
+  width = 25,
+  height = 32,
+  units = "cm")
+      
+```
+
+Second our material-use analysis figure.
+
+```{r}
+AnimalPlot <- E2.04 %>%
+ggplot(aes(x=Estimate, color = Population, y = Population)) +
+  geom_point() + 
+  geom_errorbar(aes(xmin=Q5, xmax=Q95), width=0, lwd = 1) +
+  theme_bw(base_size=10) +
+  facet_grid(Traded~Material, labeller = label_parsed) +
+  xlab("Probability")
+ggsave(
+  plot = AnimalPlot,
+  file = "AnimalPlot.pdf",
+  path = "TablesAndFigures",
+  width = 25,
+  height = 5,
+  units = "cm")
+
+```
+
+## Session Info
+
+All done! Nothing more to save this time, but lets print out our session info.
+
+```{r}
+sessionInfo()
+```
+
+

@@ -1,0 +1,1118 @@
+---
+title: "Taphonomic Signature Analyses"
+output: html_notebook
+---
+
+In this analysis we're going to explore the factors underlying the probability than any artefact contains at least one material with a moderate to strong taphonomic signature.
+
+First, let's load the required packages.
+
+```{r}
+library(tidyverse) #More intuative data wrangling. Some purists prefer base. I don't.
+library(brms) #This allows R to summon STAN for exciting Bayesian models. 
+library(rstudioapi) #Allows us to use RStudio functions.
+library(ggplot2) #Lovely plots for lovely people.
+library(ggridges) #Adds ridgeplots to ggplot. 
+library(patchwork) #Easily stitch figures together with operators.
+library(tidybayes) #Tidyverse-inspired tools for STAN outputs.
+library(magrittr) #Bidirectional Pipes
+
+```
+
+Now lets load our dataset. As before we'll use RStudio, and will put the data in the same folder as this document. If this step yields error messages, please load the data manually. 
+
+To avoid filesystem errors, also ensure your working directory contains a folder for model fits named 'fits' and a folder for tables and figures named 'TablesAndFigures'.
+
+```{r}
+setwd(dirname(getActiveDocumentContext()$path))     
+load("materialculture.rda")
+```
+
+In case there are any sources of non-deterministic (i.e. psuedo-random) variation in the fuctions we use, let's set an RNG seed. 
+
+```{r}
+set.seed(42)
+```
+
+
+## Predicting Taphonomic Signature 
+
+### Intercept Only Model
+
+Here I'm going to investigate the variables which affect the taphonomic signature of different artefacts. Our outcome variable is the 0/1 probability of containing at least one component with a moderate or strong taphonomic signature. This excludes materials that leave little trace but includes those materials like eggshell or molusc shell that leave some trace but are fragile.
+
+Let's start with our mean only model.
+
+```{r,warning=FALSE, results='hide'}
+
+#Mean only taphonomic signature model including artefacts that contain traded materials.
+#dir.create("fits") #uncomment function to create the required directory
+
+
+mt1.01 <- 
+      brm(data = d,
+          family = bernoulli,
+          HasTaph ~ 1, 
+          prior(normal(0,1.5), class = Intercept),
+          seed = 42,
+          sample_prior = T,
+          file = "fits/mt1.01")
+loo1.01 <- loo(mt1.01)
+mt1.01 %<>% add_waic()
+  
+```
+
+Let's inspect both the sampled prior distribution and the postirior distribution to make sure all is in order.
+
+```{r}
+ps1.01 <- posterior_samples(mt1.01) %>% 
+  mutate(InterceptPrior = inv_logit_scaled(prior_Intercept),
+         InterceptPosterior = inv_logit_scaled(b_Intercept)
+         ) %>%   
+   pivot_longer(
+    cols = c("InterceptPosterior","InterceptPrior"),
+    names_to = "Distribution",
+    values_to = "Density"
+  ) 
+
+plot1.01 <- ps1.01 %>%
+  ggplot(aes(x= Density)) + geom_density(aes(fill = Distribution), alpha = .5) + xlab("Prior and Posterior Intercept Only Models") + ylab("Density") + scale_x_continuous(limits = c(0,1), breaks = c(0,.25,.5,.75,1)) + scale_fill_manual( values = c("black","grey"))
+
+plot1.01
+```
+
+
+Good, the light grey distribution tells us priors seem sensible and flat, only penalising probabilities close to 0 and 1. In fact, while values of one are highly unlikely, values of zero are not impossible - but the present priors are weak enough that the priors will be washed out with enough information.
+
+The pointy posterior distribution shows us the model is fairly certain that the probability of any artifact containing a component with a strong taphonomic signature is about .32. Of course we could find something similar from simply taking the mean of the raw data:
+
+
+```{r}
+sum(d$TotAnyTaph)/length(d$TotAnyTaph)
+```
+
+But it's good to confirm that everything is working. 
+
+### Impacts of Trade on Taphonomic Signature
+
+Right. Now let's run a simple model investigating at the impacts of an artifact including a material acquired through trade on the probability of a that artifact containing material with a moderate or strong taphonomic signature. 
+
+```{r,warning=FALSE, results='hide'}
+d <- d %>%
+  mutate(
+    HasTraded = as_factor(HasTraded)
+    )
+  
+
+mt1.02 <- 
+      brm(data = d,
+          family = bernoulli,
+          HasTaph ~ 0 + HasTraded, 
+          prior(normal(0,1.5), class = b),
+          seed = 42,
+          sample_prior = T,
+          file = "fits/mt1.02")
+mt1.02 %<>% add_waic()
+loo1.02 <- loo(mt1.02)
+
+```
+
+Let's inspect our sampled posterior distributions with a ridge plot:
+
+```{r}
+
+ps1.02 <- posterior_samples(mt1.02) %>%
+  mutate(
+    NoTradedComponents = inv_logit_scaled(b_HasTraded0),
+    TradedComponents = inv_logit_scaled(b_HasTraded1),
+    Difference = TradedComponents-NoTradedComponents
+    ) %>%
+  pivot_longer(
+    cols = c("TradedComponents", "NoTradedComponents","Difference"),
+    names_to = "HasTradedBinary",
+    values_to = "b_HasTraded"
+  ) 
+ps1.02 %>%
+  ggplot(aes(x= b_HasTraded, y = HasTradedBinary)) + geom_density_ridges() + xlab("Probability of component with moderate or strong taphonomic signature") + ylab("Density") + scale_x_continuous(limits = c(0,1), breaks = c(0,.25,.5,.75,1))
+```
+
+As expected, there's a large discrepancy between the probabilities of traded material vs non-traded material having a taphonomic signature. This is because people trade for metals which are naturally rare but hard-wearing. Plastic also. The discrepancy is so great that it's barely worth running a model selection, but let's do our due diligence.
+
+```{r}
+
+ms1 <- loo_compare(loo1.01, loo1.02)[,1:2] %>% 
+  round(2) %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>%
+  arrange(rowname) %>%
+  column_to_rownames("rowname")
+
+ms1 <- model_weights(mt1.01,mt1.02, weights = "loo") %>% 
+  round(2) %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>%
+  arrange(rowname)  %>%
+  cbind(ms1) %>%
+  rename(
+    Weights = ".",
+    "ELPD Difference" = elpd_diff,
+    "SE Difference" = "se_diff"
+  ) %>%
+  arrange(desc(`ELPD Difference`))  %>%
+  relocate(Weights, .after = "SE Difference") 
+ms1
+
+```
+
+## Impact of Population
+
+Let's now do the same but for population. Going in blind I expect that the Mbuti will have a far lower probability of artifacts with a taphonomic signature than either the Hadza or the G/ana. This is because they traditionally live in more densly forested environments, where wood is more widely available, and where the bones of large animals are less widely available. I expect the Hadza and G//ana to be quite similar as both live in Savannah shrubland. But only one way to find out! We're going to run two models, one with and one without trade. And we'll code population as a random effect, as information pooling often results in better out-of-sample fit.
+
+
+```{r,warning=FALSE, results='hide'}
+d <- d %>%
+  mutate(
+    HasTraded = as_factor(HasTraded)
+    )
+  
+
+mt1.03 <- 
+      brm(data = d,
+          family = bernoulli,
+          HasTaph ~ 0 + as_factor(Population), 
+          prior(normal(0,1.5), class = b),
+          seed = 42,
+          sample_prior = T,
+          file = "fits/mt1.03")
+mt1.03 %<>% add_waic()
+loo1.03 <- loo(mt1.03)
+
+
+
+mt1.04 <- 
+      brm(data = d,
+          family = bernoulli,
+          HasTaph ~ 0 +  as_factor(HasTraded) + (0 + as_factor(HasTraded) | Population), 
+          prior(normal(0,1.5), class = b),
+          seed = 42,
+          sample_prior = T,
+          file = "fits/mt1.04a")
+mt1.04 %<>% add_waic()
+loo1.04 <- loo(mt1.04)
+```
+
+And now to plot:
+
+```{r}
+
+posterior_samples(mt1.03) %>%
+  mutate(
+    Hadza = inv_logit_scaled(b_as_factorPopulationHadza),
+    Gana = inv_logit_scaled(b_as_factorPopulationGDana),
+    Mbuti = inv_logit_scaled(b_as_factorPopulationMbuti)
+    ) %>%
+  pivot_longer(
+    cols = c("Hadza", "Gana","Mbuti"),
+    names_to = "Population",
+    values_to = "b_Population"
+  ) %>%
+  ggplot() + geom_density(aes(x= b_Population, fill = Population), alpha =.5) + xlab("Probability of component with a moderate or strong taphonomic signature") + ylab("Density")
+
+
+#posterior_samples(mt1.04)
+ps1.04 <- posterior_samples(mt1.04) %>%  
+  rename_with(
+    ~ gsub("["  , "", .x, fixed = TRUE)
+  ) %>%
+    rename_with(
+    ~ gsub("]"  , "", .x, fixed = TRUE)
+  ) %>%
+    rename_with(
+    ~ gsub(","  , "", .x, fixed = TRUE)
+  ) %>%
+      rename_with(
+    ~ gsub("/"  , "", .x, fixed = TRUE)
+  ) %>%
+  mutate(
+    T0_Hadza = inv_logit_scaled(b_as_factorHasTraded0 + r_PopulationHadzaas_factorHasTraded0),
+    T0_Gana = inv_logit_scaled(b_as_factorHasTraded0 + r_PopulationGanaas_factorHasTraded0),
+    T0_Mbuti = inv_logit_scaled(b_as_factorHasTraded0 + r_PopulationMbutias_factorHasTraded0),
+    T1_Hadza = inv_logit_scaled(b_as_factorHasTraded1 + r_PopulationHadzaas_factorHasTraded1),
+    T1_Gana = inv_logit_scaled(b_as_factorHasTraded1 + r_PopulationGanaas_factorHasTraded1),
+    T1_Mbuti = inv_logit_scaled(b_as_factorHasTraded1 + r_PopulationMbutias_factorHasTraded1)
+    ) %>%
+  pivot_longer(
+    cols = c("T0_Hadza", "T0_Gana","T0_Mbuti","T1_Hadza", "T1_Gana","T1_Mbuti"),
+    names_to = "Population",
+    values_to = "b_Population"
+  ) 
+
+ps1.04 %>%
+  filter(Population == "T0_Hadza" | Population == "T0_Gana" | Population == "T0_Mbuti") %>%
+  ggplot() + geom_density(aes(x= b_Population, fill = Population), alpha =.5) + xlab("Probability of component with a moderate or strong taphonomic signature") + ylab("Density")
+
+
+```
+
+As expected, there is the Hadza and G//ana are more similar to each other than to the Mbuti though, if we consider only the peaks, we see that the Hadza are actually intermediate. 
+
+Given the substantial variation between populations, I feel confident that the model with both traded artefacts and populations will outperform the models with fewer parameters in a leave-one-out model selection, but let's find out.
+
+```{r}
+
+
+ms2 <- loo_compare(loo1.01, loo1.02, loo1.03, loo1.04)[,1:2] %>% 
+  round(2) %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>%
+  arrange(rowname) %>%
+  column_to_rownames("rowname")
+
+ms2 <- model_weights(mt1.01,mt1.02,mt1.03, mt1.04, weights = "loo") %>% 
+  round(2) %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>%
+  arrange(rowname)  %>%
+  cbind(ms2) %>%
+  rename(
+    Weights = ".",
+    "ELPD Difference" = elpd_diff,
+    "SE Difference" = "se_diff"
+  ) %>%
+  arrange(desc(`ELPD Difference`))  %>%
+  relocate(Weights, .after = "SE Difference") 
+ms2
+```
+
+As expected, it does. The only comperable model is the one which includes trade only as a predictor.
+
+## Impact of Artifact Function
+
+Now to include artifact function. The syntax is unruly, as I had to code all artifact functions as dummy variables. I have since discovered more suscinct ways of doing this, but it works as intended. We'll run three models, one including function only, one including the effects of trade and one including function and trade with population as a varying effect (the full model).
+
+We're going to exclude illumination and thermoregulation from these analyses because the sample size is too low and because no tools are used exclusively for these purposes.
+
+
+```{r, error = F}
+
+mt1.05 <- 
+      brm(data = d,
+          family = bernoulli,
+          HasTaph ~ 0 + factor(ClothingProtection) + factor(CookingConsumption) + factor(Foraging) + factor(FurnitureShelter) + factor(GroomingHygieneMedicinal) +  factor(PlayLeisure) + factor(RitualAdornment) + factor(StorageTransport) + factor(StorageTransport) + factor(ToolMatPrep),
+         # prior(normal(0,1.5), class = Intercept) +
+          prior(normal(0,1.5), class = b),
+          seed = 42,
+          iter = 2000, warmup = 1000, chains = 4, cores = 4,
+          file = "fits/mt1.05",
+          sample_prior = T
+          )
+
+loo1.05 <- loo(mt1.05)
+
+mt1.06 <- 
+      brm(data = d,
+          family = bernoulli,
+          HasTaph ~ 0 + factor(HasTraded) + factor(ClothingProtection) + factor(CookingConsumption) + factor(Foraging) + factor(FurnitureShelter) + factor(GroomingHygieneMedicinal) +  factor(PlayLeisure) + factor(RitualAdornment)  + factor(StorageTransport) + factor(StorageTransport) + factor(ToolMatPrep),
+        #  prior(normal(0,1.5), class = Intercept) +
+          prior(normal(0,1.5), class = b),
+          seed = 42,
+          iter = 2000, warmup = 1000, chains = 4, cores = 4,
+          file = "fits/mt1.06",
+          sample_prior = T
+          )
+
+loo1.06 <- loo(mt1.06)
+
+
+
+mt1.07 <- 
+      brm(data = d,
+          family = bernoulli,
+          HasTaph ~ 0 + factor(HasTraded) + factor(ClothingProtection) +factor(CookingConsumption) + factor(Foraging) + factor(FurnitureShelter) + factor(GroomingHygieneMedicinal)  +  factor(PlayLeisure) + factor(RitualAdornment) + factor(StorageTransport) + factor(StorageTransport) + factor(ToolMatPrep) + (0 + factor(HasTraded) + factor(ClothingProtection) +factor(CookingConsumption) + factor(Foraging) + factor(FurnitureShelter) + factor(GroomingHygieneMedicinal) + factor(PlayLeisure) + factor(RitualAdornment) + factor(StorageTransport) + factor(StorageTransport) + factor(ToolMatPrep) | Population),
+        #  prior(normal(0,1.5), class = Intercept) +
+          prior = c(prior(normal(0,1.5), class = b), prior(student_t(10, 0, 1), class = sd), 
+          prior(lkj(2), class = cor)),
+          seed = 42,
+          iter = 2000, warmup = 1000, chains = 4, cores = 4,
+          file = "fits/mt1.07",
+          sample_prior = T
+          )
+
+loo1.07 <- loo(mt1.07)
+
+```
+
+Now let's put each of these into a model selection.
+
+```{r}
+ms3 <- loo_compare(loo1.01, loo1.02, loo1.03, loo1.04, loo1.05, loo1.06, loo1.07)[,1:2] %>% 
+  round(2) %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>%
+  arrange(rowname) %>%
+  column_to_rownames("rowname")
+
+ms3 <- model_weights(mt1.01, mt1.02, mt1.03, mt1.04, mt1.05, mt1.06, mt1.07, weights = "loo") %>% 
+  round(2) %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>%
+  arrange(rowname)  %>%
+  cbind(ms3) %>%
+  rename(
+    Weights = ".",
+    "ELPD Difference" = elpd_diff,
+    "SE Difference" = "se_diff"
+  ) %>%
+  arrange(desc(`ELPD Difference`))  %>%
+  relocate(Weights, .after = "SE Difference")
+
+ms3
+```
+
+The best performing model is the full model. Finally, let's inspect our distributions by drawing a few ridge plots. 
+
+We'll start just by examining the outputs from model mt1.06, which included only trade and tool-function, is less visually complex and performed almost as well as our full model. Then we'll inspect the outputs from the full model disagregated by population as well as tool function. 
+
+For our research question we're not really interested in the distributions for tools with traded components, so we'll exclude these from the graphs.
+
+
+```{r}
+
+ps1.06 <- posterior_samples(mt1.06) %>%  mutate(
+    ClothingProtection = inv_logit_scaled(b_factorHasTraded0 + b_factorClothingProtection1),
+    CookingConsumption = inv_logit_scaled(b_factorHasTraded0 + b_factorCookingConsumption1),
+    Foraging = inv_logit_scaled(b_factorHasTraded0 + b_factorForaging1),
+    FurnitureShelter = inv_logit_scaled(b_factorHasTraded0 + b_factorFurnitureShelter1),
+    GroomingHygieneMedicinal = inv_logit_scaled(b_factorHasTraded0 + b_factorGroomingHygieneMedicinal1),
+    PlayLeisure = inv_logit_scaled(b_factorHasTraded0 + b_factorPlayLeisure1),
+    RitualAdornment = inv_logit_scaled(b_factorHasTraded0 + b_factorRitualAdornment1),
+    StorageTransport = inv_logit_scaled(b_factorHasTraded0 + b_factorStorageTransport1),
+    ToolMatPrep = inv_logit_scaled(b_factorHasTraded0 + b_factorToolMatPrep1)
+    ) %>%
+  pivot_longer(
+    cols = c("ClothingProtection","CookingConsumption","Foraging","FurnitureShelter","GroomingHygieneMedicinal","PlayLeisure","RitualAdornment","StorageTransport","ToolMatPrep"),
+    names_to = "Function",
+    values_to = "b_Function"
+  ) 
+
+ps1.06 %>%
+  ggplot(aes(x= b_Function, y = Function)) + geom_density_ridges() + xlab("Probability of component with strong taphonomic signature") + ylab("Density") + scale_x_continuous(limits = c(-.03,0.5))
+
+```
+
+And now the mammoth code for the full model. We're wranging a lot of data here. The code is overlong and there are ways to do this more succinctly, but again, it works.
+
+```{r}
+ps1.07 <-posterior_samples(mt1.07)  %>%
+  rename_with(
+    ~ gsub("["  , "", .x, fixed = TRUE)
+  ) %>%
+    rename_with(
+    ~ gsub("]"  , "", .x, fixed = TRUE)
+  ) %>%
+    rename_with(
+    ~ gsub(","  , "", .x, fixed = TRUE)
+  ) %>%
+    rename_with(
+    ~ gsub("/"  , "", .x, fixed = TRUE)
+  ) %>%
+mutate( #Artefacts without Traded Materials
+  T0_Gana_ClothingProtection = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorClothingProtection1 +
+                        r_PopulationGanafactorHasTraded0 + 
+                        r_PopulationGanafactorClothingProtection1),
+  
+    
+  T0_Hadza_ClothingProtection = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorClothingProtection1 +
+                        r_PopulationHadzafactorHasTraded0 + 
+                        r_PopulationHadzafactorClothingProtection1),
+  
+  T0_Mbuti_ClothingProtection = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorClothingProtection1 +
+                        r_PopulationMbutifactorHasTraded0 + 
+                        r_PopulationMbutifactorClothingProtection1),
+  
+  T0_Gana_CookingConsumption = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorCookingConsumption1 +
+                        r_PopulationGanafactorHasTraded0 + 
+                        r_PopulationGanafactorCookingConsumption1),
+  
+    
+  T0_Hadza_CookingConsumption = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorCookingConsumption1 +
+                        r_PopulationHadzafactorHasTraded0 + 
+                        r_PopulationHadzafactorCookingConsumption1),
+  
+  T0_Mbuti_CookingConsumption = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorCookingConsumption1 +
+                        r_PopulationMbutifactorHasTraded0 + 
+                        r_PopulationMbutifactorCookingConsumption1),
+  
+  T0_Gana_Foraging = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorForaging1 +
+                        r_PopulationGanafactorHasTraded0 + 
+                        r_PopulationGanafactorForaging1),
+  
+    
+  T0_Hadza_Foraging = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorForaging1 +
+                        r_PopulationHadzafactorHasTraded0 + 
+                        r_PopulationHadzafactorForaging1),
+  
+  T0_Mbuti_Foraging = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorForaging1 +
+                        r_PopulationMbutifactorHasTraded0 + 
+                        r_PopulationMbutifactorForaging1),
+  
+  T0_Gana_FurnitureShelter = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorFurnitureShelter1 +
+                        r_PopulationGanafactorHasTraded0 + 
+                        r_PopulationGanafactorFurnitureShelter1),
+  
+    
+  T0_Hadza_FurnitureShelter = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorFurnitureShelter1 +
+                        r_PopulationHadzafactorHasTraded0 + 
+                        r_PopulationHadzafactorFurnitureShelter1),
+  
+  T0_Mbuti_FurnitureShelter = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorFurnitureShelter1 +
+                        r_PopulationMbutifactorHasTraded0 + 
+                        r_PopulationMbutifactorFurnitureShelter1),
+  
+  T0_Gana_GroomingHygieneMedicinal = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorGroomingHygieneMedicinal1 +
+                        r_PopulationGanafactorHasTraded0 + 
+                        r_PopulationGanafactorGroomingHygieneMedicinal1),
+  
+  T0_Hadza_GroomingHygieneMedicinal = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorGroomingHygieneMedicinal1 +
+                        r_PopulationHadzafactorHasTraded0 + 
+                        r_PopulationHadzafactorGroomingHygieneMedicinal1),
+  
+  T0_Mbuti_GroomingHygieneMedicinal = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorGroomingHygieneMedicinal1 +
+                        r_PopulationMbutifactorHasTraded0 + 
+                        r_PopulationMbutifactorGroomingHygieneMedicinal1),
+  
+  T0_Gana_PlayLeisure = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorPlayLeisure1 +
+                        r_PopulationGanafactorHasTraded0 + 
+                        r_PopulationGanafactorPlayLeisure1),
+    
+  T0_Hadza_PlayLeisure = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorPlayLeisure1 +
+                        r_PopulationHadzafactorHasTraded0 + 
+                        r_PopulationHadzafactorPlayLeisure1),
+  
+  T0_Mbuti_PlayLeisure = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorPlayLeisure1 +
+                        r_PopulationMbutifactorHasTraded0 + 
+                        r_PopulationMbutifactorPlayLeisure1),
+  
+  T0_Gana_StorageTransport = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorStorageTransport1 +
+                        r_PopulationGanafactorHasTraded0 + 
+                        r_PopulationGanafactorStorageTransport1),
+     
+  T0_Hadza_StorageTransport = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorStorageTransport1 +
+                        r_PopulationHadzafactorHasTraded0 + 
+                        r_PopulationHadzafactorStorageTransport1),
+  
+  T0_Mbuti_StorageTransport = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorStorageTransport1 +
+                        r_PopulationMbutifactorHasTraded0 + 
+                        r_PopulationMbutifactorStorageTransport1),
+    
+  T0_Gana_RitualAdornment = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorRitualAdornment1 +
+                        r_PopulationGanafactorHasTraded0 + 
+                        r_PopulationGanafactorRitualAdornment1),
+     
+  T0_Hadza_RitualAdornment = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorRitualAdornment1 +
+                        r_PopulationHadzafactorHasTraded0 + 
+                        r_PopulationHadzafactorRitualAdornment1),
+  
+  T0_Mbuti_RitualAdornment = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorRitualAdornment1 +
+                        r_PopulationMbutifactorHasTraded0 + 
+                        r_PopulationMbutifactorRitualAdornment1),
+  
+  T0_Gana_ToolMatPrep = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorToolMatPrep1 +
+                        r_PopulationGanafactorHasTraded0 + 
+                        r_PopulationGanafactorToolMatPrep1),
+     
+  T0_Hadza_ToolMatPrep = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorToolMatPrep1 +
+                        r_PopulationHadzafactorHasTraded0 + 
+                        r_PopulationHadzafactorToolMatPrep1),
+  
+  T0_Mbuti_ToolMatPrep = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorToolMatPrep1 +
+                        r_PopulationMbutifactorHasTraded0 + 
+                        r_PopulationMbutifactorToolMatPrep1),
+    T1_Gana_ClothingProtection = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorClothingProtection1 +
+                        r_PopulationGanafactorHasTraded1 + 
+                        r_PopulationGanafactorClothingProtection1),
+  #Has Traded Material
+    
+  T1_Hadza_ClothingProtection = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorClothingProtection1 +
+                        r_PopulationHadzafactorHasTraded1 + 
+                        r_PopulationHadzafactorClothingProtection1),
+  
+  T1_Mbuti_ClothingProtection = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorClothingProtection1 +
+                        r_PopulationMbutifactorHasTraded1 + 
+                        r_PopulationMbutifactorClothingProtection1),
+  
+  T1_Gana_CookingConsumption = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorCookingConsumption1 +
+                        r_PopulationGanafactorHasTraded1 + 
+                        r_PopulationGanafactorCookingConsumption1),
+  
+    
+  T1_Hadza_CookingConsumption = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorCookingConsumption1 +
+                        r_PopulationHadzafactorHasTraded1 + 
+                        r_PopulationHadzafactorCookingConsumption1),
+  
+  T1_Mbuti_CookingConsumption = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorCookingConsumption1 +
+                        r_PopulationMbutifactorHasTraded1 + 
+                        r_PopulationMbutifactorCookingConsumption1),
+  
+  T1_Gana_Foraging = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorForaging1 +
+                        r_PopulationGanafactorHasTraded1 + 
+                        r_PopulationGanafactorForaging1),
+  
+    
+  T1_Hadza_Foraging = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorForaging1 +
+                        r_PopulationHadzafactorHasTraded1 + 
+                        r_PopulationHadzafactorForaging1),
+  
+  T1_Mbuti_Foraging = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorForaging1 +
+                        r_PopulationMbutifactorHasTraded1 + 
+                        r_PopulationMbutifactorForaging1),
+  
+  T1_Gana_FurnitureShelter = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorFurnitureShelter1 +
+                        r_PopulationGanafactorHasTraded1 + 
+                        r_PopulationGanafactorFurnitureShelter1),
+  
+    
+  T1_Hadza_FurnitureShelter = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorFurnitureShelter1 +
+                        r_PopulationHadzafactorHasTraded1 + 
+                        r_PopulationHadzafactorFurnitureShelter1),
+  
+  T1_Mbuti_FurnitureShelter = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorFurnitureShelter1 +
+                        r_PopulationMbutifactorHasTraded1 + 
+                        r_PopulationMbutifactorFurnitureShelter1),
+  
+  T1_Gana_GroomingHygieneMedicinal = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorGroomingHygieneMedicinal1 +
+                        r_PopulationGanafactorHasTraded1 + 
+                        r_PopulationGanafactorGroomingHygieneMedicinal1),
+  
+  T1_Hadza_GroomingHygieneMedicinal = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorGroomingHygieneMedicinal1 +
+                        r_PopulationHadzafactorHasTraded1 + 
+                        r_PopulationHadzafactorGroomingHygieneMedicinal1),
+  
+  T1_Mbuti_GroomingHygieneMedicinal = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorGroomingHygieneMedicinal1 +
+                        r_PopulationMbutifactorHasTraded1 + 
+                        r_PopulationMbutifactorGroomingHygieneMedicinal1),
+  
+  T1_Gana_PlayLeisure = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorPlayLeisure1 +
+                        r_PopulationGanafactorHasTraded1 + 
+                        r_PopulationGanafactorPlayLeisure1),
+    
+  T1_Hadza_PlayLeisure = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorPlayLeisure1 +
+                        r_PopulationHadzafactorHasTraded1 + 
+                        r_PopulationHadzafactorPlayLeisure1),
+  
+  T1_Mbuti_PlayLeisure = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorPlayLeisure1 +
+                        r_PopulationMbutifactorHasTraded1 + 
+                        r_PopulationMbutifactorPlayLeisure1),
+  
+  T1_Gana_StorageTransport = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorStorageTransport1 +
+                        r_PopulationGanafactorHasTraded1 + 
+                        r_PopulationGanafactorStorageTransport1),
+     
+  T1_Hadza_StorageTransport = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorStorageTransport1 +
+                        r_PopulationHadzafactorHasTraded1 + 
+                        r_PopulationHadzafactorStorageTransport1),
+  
+  T1_Mbuti_StorageTransport = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorStorageTransport1 +
+                        r_PopulationMbutifactorHasTraded1 + 
+                        r_PopulationMbutifactorStorageTransport1),
+    
+  T1_Gana_RitualAdornment = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorRitualAdornment1 +
+                        r_PopulationGanafactorHasTraded1 + 
+                        r_PopulationGanafactorRitualAdornment1),
+     
+  T1_Hadza_RitualAdornment = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorRitualAdornment1 +
+                        r_PopulationHadzafactorHasTraded1 + 
+                        r_PopulationHadzafactorRitualAdornment1),
+  
+  T1_Mbuti_RitualAdornment = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorRitualAdornment1 +
+                        r_PopulationMbutifactorHasTraded1 + 
+                        r_PopulationMbutifactorRitualAdornment1),
+  
+  T1_Gana_ToolMatPrep = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorToolMatPrep1 +
+                        r_PopulationGanafactorHasTraded1 + 
+                        r_PopulationGanafactorToolMatPrep1),
+     
+  T1_Hadza_ToolMatPrep = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorToolMatPrep1 +
+                        r_PopulationHadzafactorHasTraded1 + 
+                        r_PopulationHadzafactorToolMatPrep1),
+  
+  T1_Mbuti_ToolMatPrep = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorToolMatPrep1 +
+                        r_PopulationMbutifactorHasTraded1 + 
+                        r_PopulationMbutifactorToolMatPrep1),
+  ) %>%
+  pivot_longer(
+    cols = c(
+    T0_Hadza_ClothingProtection,
+    T0_Gana_ClothingProtection,
+    T0_Mbuti_ClothingProtection,
+    
+    T0_Hadza_CookingConsumption,
+    T0_Gana_CookingConsumption,
+    T0_Mbuti_CookingConsumption,
+    
+    T0_Hadza_Foraging,
+    T0_Gana_Foraging,
+    T0_Mbuti_Foraging,
+    
+    T0_Hadza_FurnitureShelter,
+    T0_Gana_FurnitureShelter,
+    T0_Mbuti_FurnitureShelter,
+    
+    T0_Hadza_GroomingHygieneMedicinal,
+    T0_Gana_GroomingHygieneMedicinal,
+    T0_Mbuti_GroomingHygieneMedicinal,
+    
+    T0_Hadza_PlayLeisure,
+    T0_Gana_PlayLeisure,
+    T0_Mbuti_PlayLeisure,
+    
+    T0_Hadza_PlayLeisure,
+    T0_Gana_PlayLeisure,
+    T0_Mbuti_PlayLeisure,
+    
+    T0_Hadza_StorageTransport,
+    T0_Gana_StorageTransport,
+    T0_Mbuti_StorageTransport ,
+    
+    T0_Hadza_RitualAdornment,
+    T0_Gana_RitualAdornment,
+    T0_Mbuti_RitualAdornment,
+    
+    T0_Hadza_ToolMatPrep,
+    T0_Gana_ToolMatPrep,
+    T0_Mbuti_ToolMatPrep,
+    
+    T1_Hadza_ClothingProtection,
+    T1_Gana_ClothingProtection,
+    T1_Mbuti_ClothingProtection,
+    
+    T1_Hadza_CookingConsumption,
+    T1_Gana_CookingConsumption,
+    T1_Mbuti_CookingConsumption,
+    
+    T1_Hadza_Foraging,
+    T1_Gana_Foraging,
+    T1_Mbuti_Foraging,
+    
+    T1_Hadza_FurnitureShelter,
+    T1_Gana_FurnitureShelter,
+    T1_Mbuti_FurnitureShelter,
+    
+    T1_Hadza_GroomingHygieneMedicinal,
+    T1_Gana_GroomingHygieneMedicinal,
+    T1_Mbuti_GroomingHygieneMedicinal,
+    
+    T1_Hadza_PlayLeisure,
+    T1_Gana_PlayLeisure,
+    T1_Mbuti_PlayLeisure,
+    
+    T1_Hadza_PlayLeisure,
+    T1_Gana_PlayLeisure,
+    T1_Mbuti_PlayLeisure,
+    
+    T1_Hadza_StorageTransport,
+    T1_Gana_StorageTransport,
+    T1_Mbuti_StorageTransport ,
+    
+    T1_Hadza_RitualAdornment,
+    T1_Gana_RitualAdornment,
+    T1_Mbuti_RitualAdornment,
+    
+    T1_Hadza_ToolMatPrep,
+    T1_Gana_ToolMatPrep,
+    T1_Mbuti_ToolMatPrep
+    ),
+    names_to = "Function",
+    values_to = "b_Function"
+  ) %>%
+  select(Function, b_Function)
+
+
+ps1.07  %>%
+  mutate(
+  Function = as.character(Function)) %>%
+  separate(Function, c("Traded", "Population", "Function"), sep = "_") %>%
+  filter(Traded == "T0") %>%
+      ggplot() + geom_density_ridges(aes(x= b_Function, y = Function, fill = Population), alpha = .5) + xlab("Probability of component with strong taphonomic signature") + ylab("Density") + scale_x_continuous(limits = c(-.03,1)) 
+
+
+```
+
+We can also inspect the distributions for artefacts including traded components
+
+```{r}
+ps1.07 %>%
+    mutate(
+  Function = as.character(Function)) %>%
+  separate(Function, c("Traded", "Population", "Function"), sep = "_") %>%
+  filter(Traded == "T1") %>%
+      ggplot() + geom_density_ridges(aes(x= b_Function, y = Function, fill = Population), alpha = .5) + xlab("Probability of component with strong taphonomic signature") + ylab("Density") + scale_x_continuous(limits = c(-.03,1)) 
+```
+
+As we can see, in the varying effects model, some of the distributions are very wide, especially for certain categories because some of these categories have small samples (i.e., some tool types simply didn't inclide traded components). Although the full, varying effects model is substantially preferred in a model selection, the model which excludes population is also instructive.
+
+## Impact of Symbolism
+
+Finally, although our function variables proved instructive, some artefacts might constitute evidence of symbolism cognition even though they have no direct ritual purpose. For example, Mbuti mbimba honey containers are very elaborately worked/stylised (Tanno, 1981), and would probably constitute evidence of symbolism despite being coded as primarily used for storage. For this reason I created a binary coding for symbolism sensu lato, which includes all instruments, jewelry, ritual artifacts as well as other artifacts which would constitute evidence of symbolism based on ethnographic descriptions. I give a full account of the coding rationalle in the associated manuscript.
+
+As the symbolic value of an artefact is closely related to its function, it would be harmful to incorporate both into our model. Instead, let's run the above models again, but we'll substitute 'symbolism' for the 'function' variables. As symbolism is coded as a simple binary, these models are much simpler.
+
+```{r, error = F, warning = F}
+mt1.08 <- 
+      brm(data = d,
+          family = bernoulli,
+          HasTaph ~ 0 + factor(Symbolism),
+         # prior(normal(0,1.5), class = Intercept) +
+          prior(normal(0,1.5), class = b),
+          seed = 42,
+          iter = 2000, warmup = 1000, chains = 4, cores = 4,
+          file = "fits/mt1.08",
+          sample_prior = T
+          )
+mt1.08 %<>% add_waic()
+loo1.08 <- loo(mt1.08) 
+
+#The following models both use nonlinear syntax. Standard model codings are provided in the following codeblock.
+
+mt1.09 <- 
+      brm(data = d,
+          family = bernoulli,
+          bf(HasTaph ~ 0 + s + t,
+             s ~ 0 + factor(Symbolism),
+             t ~ 0 + factor(HasTraded),
+             nl = T),
+          prior = c(prior(normal(0,1.5), nlpar = s),
+                    prior(normal(0,1.5), nlpar = t)),
+          seed = 42,
+          iter = 2000, warmup = 1000, chains = 4, cores = 4,
+          file = "fits/mt1.09a",
+          sample_prior = T
+          )
+mt1.09 %<>% add_waic()
+loo1.09 <- loo(mt1.09)
+
+
+mt1.10 <- brm(data = d,
+              family = bernoulli,
+              bf(HasTaph ~ 0 + s + t,
+                s ~ 0 + factor(Symbolism) + (0 + factor(Symbolism) | Population),
+                t ~ 0 + factor(HasTraded) + (0 + factor(HasTraded) | Population),
+                nl = T),
+                prior = c(prior(normal(0,1.5), nlpar = s),
+                          prior(student_t(10, 0, 1), class = sd, nlpar = s),
+
+                          prior(normal(0,1.5), nlpar = t),
+                          prior(student_t(10, 0, 1), class = sd, nlpar = t),
+                   
+                          prior(lkj(2), class = cor)),
+              seed = 42,
+              iter = 20000, warmup = 7000, chains = 4, cores = 4,
+              control = list(adapt_delta = .995),
+              #These settings banished some divergent transitions, though are probably overkill.
+              file = "fits/mt1.10",
+              sample_prior = T
+          )
+mt1.10 %<>% add_waic()
+loo1.10 <- loo(mt1.10)
+```
+
+You'll see that in order to recover our 0 intercepts we've had to use nonlinear syntax for models 1.09 and 1.10. This is due to a quirk of the way BRMs handles zero intercept models with multiple categroical predictors, you can read about it in [chapter 5.3 of Solomon Kurz' excellent code conversion of McElreaths Rethinking (2nd Ed)](https://bookdown.org/content/4857/the-many-variables-the-spurious-waffles.html#categorical-variables). The models in the following codeblock are equivalent, but use the standard syntax.
+
+
+```{r, error = F, warning = F}
+mt1.09ls <- 
+      brm(data = d,
+          family = bernoulli,
+          HasTaph ~ 0 + factor(Symbolism) + factor(HasTraded),
+        #  prior(normal(0,1.5), class = Intercept) +
+          prior(normal(0,1.5), class = b),
+          seed = 42,
+          iter = 2000, warmup = 1000, chains = 4, cores = 4,
+          file = "fits/mt1.09ls",
+          sample_prior = T
+          )
+mt1.09ls %<>% add_waic()
+loo1.09ls <- loo(mt1.09ls) 
+
+
+mt1.10ls <- 
+      brm(data = d,
+          family = bernoulli,
+          HasTaph ~ 0 + factor(Symbolism) + factor(HasTraded) +  (0 + factor(Symbolism) + factor(HasTraded) | Population),
+        #  prior(normal(0,1.5), class = Intercept) +
+          prior = c(prior(normal(0,1.5), class = b), prior(student_t(10, 0, 1), class = sd),
+          prior(lkj(2), class = cor)),
+          seed = 42,
+          iter = 2000, warmup = 1000, chains = 4, cores = 4,
+          file = "fits/mt1.10ls",
+          sample_prior = T
+          )
+mt1.10ls %<>% add_waic()
+loo1.10ls <- loo(mt1.10ls)
+
+```
+
+
+Now, lets repeat our model selection substituting our function models with the equivalent symbolism models.
+
+```{r}
+ms4 <- loo_compare(loo1.01, loo1.02, loo1.03, loo1.04, loo1.08, loo1.09, loo1.10)[,1:2] %>% 
+  round(2) %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>%
+  arrange(rowname) %>%
+  column_to_rownames("rowname")
+
+ms4 <- model_weights(mt1.01, mt1.02, mt1.03, mt1.04, mt1.08, mt1.09,mt1.10, weights = "loo") %>% 
+  round(2) %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>%
+  arrange(rowname)  %>%
+  cbind(ms4) %>%
+  rename(
+    Weights = ".",
+    "ELPD Difference" = elpd_diff,
+    "SE Difference" = "se_diff"
+  ) %>%
+  arrange(desc(`ELPD Difference`))  %>%
+  relocate(Weights, .after = "SE Difference")
+
+ms4
+
+```
+
+Here the model including trade only is preferred, though only a small improvement versus the full model. Lets explore our outputs with a couple of ridge plots. We'll start by looking at the estimates for artefacts without traded components. Another suboptimal-but-functional codeblock coming up.
+
+
+```{r}
+
+ps1.09 <- posterior_samples(mt1.09) %>%  mutate(
+    IndicatesSymbolism_T0 = inv_logit_scaled(b_t_factorHasTraded0 + b_s_factorSymbolism1),
+    NoSymbolism_T0 = inv_logit_scaled(b_t_factorHasTraded0 + b_s_factorSymbolism0),
+    IndicatesSymbolism_T1 = inv_logit_scaled(b_t_factorHasTraded1 + b_s_factorSymbolism1),
+    NoSymbolism_T1 = inv_logit_scaled(b_t_factorHasTraded1 + b_s_factorSymbolism0),
+    ) %>%
+  pivot_longer(
+    cols = c("IndicatesSymbolism_T0","NoSymbolism_T0", "IndicatesSymbolism_T1","NoSymbolism_T1"),
+    names_to = "Symbolism",
+    values_to = "b_Symbolism"
+  ) %>%
+  select(Symbolism, b_Symbolism)
+
+
+SymbolismNoTrade <- ps1.09 %>%
+  separate(Symbolism, c("Symbolism", "Trade"), sep = "_") %>%
+  filter(Trade == "T0") %>%
+  ggplot(aes(x= b_Symbolism, y = Symbolism)) + geom_density_ridges() + xlab("Probability of component with taphonomic signature") + ylab("Density")
+
+
+ps1.10 <- posterior_samples(mt1.10)  %>%
+  rename_with(
+    ~ gsub("__t["  , "", .x, fixed = TRUE)
+  ) %>%
+    rename_with(
+    ~ gsub("__s["  , "", .x, fixed = TRUE)
+  ) %>%
+    rename_with(
+    ~ gsub("]"  , "", .x, fixed = TRUE)
+  ) %>%
+    rename_with(
+    ~ gsub(","  , "", .x, fixed = TRUE)
+  ) %>%
+    rename_with(
+    ~ gsub("/"  , "", .x, fixed = TRUE)
+  ) %>%
+      rename_with(
+    ~ gsub("b_s_f"  , "b_f", .x, fixed = TRUE)
+  ) %>%
+        rename_with(
+    ~ gsub("b_t_f"  , "b_f", .x, fixed = TRUE)
+  ) %>%
+mutate(
+  Gana_HasSymbolism_T0 = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorSymbolism1 +
+                        r_PopulationGanafactorHasTraded0 + 
+                        r_PopulationGanafactorSymbolism1),
+  
+  Gana_NoSymbolism_T0 = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorSymbolism0 +
+                        r_PopulationGanafactorHasTraded0 + 
+                        r_PopulationGanafactorSymbolism0),
+  
+  Hadza_HasSymbolism_T0 = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorSymbolism1 +
+                        r_PopulationHadzafactorHasTraded0 + 
+                        r_PopulationHadzafactorSymbolism1),
+  
+  Hadza_NoSymbolism_T0 = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorSymbolism0 +
+                        r_PopulationHadzafactorHasTraded0 + 
+                        r_PopulationHadzafactorSymbolism0),
+  
+  Mbuti_HasSymbolism_T0 = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorSymbolism1 +
+                        r_PopulationMbutifactorHasTraded0 + 
+                        r_PopulationMbutifactorSymbolism1),
+  
+  Mbuti_NoSymbolism_T0 = inv_logit_scaled(b_factorHasTraded0 +
+                        b_factorSymbolism0 +
+                        r_PopulationMbutifactorHasTraded0 + 
+                        r_PopulationMbutifactorSymbolism0),
+    Gana_HasSymbolism_T1 = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorSymbolism1 +
+                        r_PopulationGanafactorHasTraded1 + 
+                        r_PopulationGanafactorSymbolism1),
+  
+  Gana_NoSymbolism_T1 = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorSymbolism0 +
+                        r_PopulationGanafactorHasTraded1 + 
+                        r_PopulationGanafactorSymbolism0),
+  
+  Hadza_HasSymbolism_T1 = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorSymbolism1 +
+                        r_PopulationHadzafactorHasTraded1 + 
+                        r_PopulationHadzafactorSymbolism1),
+  
+  Hadza_NoSymbolism_T1 = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorSymbolism0 +
+                        r_PopulationHadzafactorHasTraded1 + 
+                        r_PopulationHadzafactorSymbolism0),
+  
+  Mbuti_HasSymbolism_T1 = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorSymbolism1 +
+                        r_PopulationMbutifactorHasTraded1 + 
+                        r_PopulationMbutifactorSymbolism1),
+  
+  Mbuti_NoSymbolism_T1 = inv_logit_scaled(b_factorHasTraded1 +
+                        b_factorSymbolism0 +
+                        r_PopulationMbutifactorHasTraded1 + 
+                        r_PopulationMbutifactorSymbolism0),
+  ) %>%
+  pivot_longer(
+    cols = c(
+      Gana_HasSymbolism_T0,
+      Gana_NoSymbolism_T0, 
+      Hadza_HasSymbolism_T0, 
+      Hadza_NoSymbolism_T0, 
+      Mbuti_HasSymbolism_T0, 
+      Mbuti_NoSymbolism_T0,
+      Gana_HasSymbolism_T1,
+      Gana_NoSymbolism_T1, 
+      Hadza_HasSymbolism_T1, 
+      Hadza_NoSymbolism_T1, 
+      Mbuti_HasSymbolism_T1, 
+      Mbuti_NoSymbolism_T1),
+    names_to = "Function",
+    values_to = "b_Function"
+  ) %>%
+  select(Function, b_Function) %>%
+  mutate(
+  Function = as.character(Function))
+
+
+SymbolismByPopNoTrade <- ps1.10 %>%
+  separate(Function, c("Population", "Function", "Traded"), sep = "_") %>% 
+    filter(Traded == "T0") %>%
+      ggplot() + geom_density_ridges(aes(x= b_Function, y = Function, fill = Population), alpha = .5) + xlab("Probability of component with medium or strong taphonomic signature") + ylab("Density") + scale_x_continuous(limits = c(-.03,1)) 
+    
+SymbolismNoTrade + SymbolismByPopNoTrade
+```
+
+As we can see, symbolic artifacts were slightly less likely to leave a trace, but the difference is nothing to write home about - because most artifacts had a low probability of leaving at trace. Interestingly, G//ana symbolic objects brink the means up - Hadza and Mbuti symbolic artifacts are more often traceless.
+
+And finally the same thing but for artefacts with traded materials.
+
+```{r}
+
+SymbolismTrade <- ps1.09 %>%
+  separate(Symbolism, c("Symbolism", "Trade"), sep = "_") %>%
+  filter(Trade == "T1") %>%
+  ggplot(aes(x= b_Symbolism, y = Symbolism)) + geom_density_ridges() + xlab("Probability of component with taphonomic signature") + ylab("Density")
+
+
+SymbolismByPopTrade <- ps1.10 %>%
+  separate(Function, c("Population", "Function", "Traded"), sep = "_") %>% 
+    filter(Traded == "T1") %>%
+      ggplot() + geom_density_ridges(aes(x= b_Function, y = Function, fill = Population), alpha = .5) + xlab("Probability of component with medium or strong taphonomic signature") + ylab("Density") + scale_x_continuous(limits = c(-.03,1)) 
+
+
+SymbolismTrade + SymbolismByPopTrade
+```
+
+And as with other analyses of artefacts with traded components, there's a high preservation probability accross the board. We'll explore this case by case in the manuscript. For now though, let's wrap this up.
+
+### Save & Session Info ###
+
+Finally, let's save our model outputs...
+
+```{r}
+save(list =c("ps1.01", "ps1.02", "ps1.04", "ps1.06", "ps1.07", "ps1.10","ms1","ms2","ms3","ms4", 
+             #Output files from the present analysis
+             "d", "t", "dlong", "dfull"
+             #Output files from our data preperation document (repeated because the save function                 overwrites the existing rda file)
+#            , "E2.04", "ms5"
+             #Finally, output files from our component material analysis. If you're running this analysis from scratch,                 comment out the above line to avoid errors. 
+             ),
+     file = "materialculture.rda")
+```
+
+...and print our our session info.
+
+```{r}
+sessionInfo()
+```
+

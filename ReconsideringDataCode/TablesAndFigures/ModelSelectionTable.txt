@@ -1,0 +1,47 @@
+% latex table generated in R 4.3.2 by xtable 1.8-4 package
+% Thu Feb  1 15:15:26 2024
+\begin{table}[ht]
+\centering
+\begingroup\small
+\begin{tabular}{llrrr}
+  \hline
+\# & Definition & ELPD Difference & SE Difference & Weights \\ 
+  \hline
+\ref{Tab:ModelSelection}.1 &  &  &  &  \\ 
+   & 0 + Trade & 0.00 & 0.00 & 1.00 \\ 
+   & Mean & -50.05 & 9.18 & 0.00 \\ 
+   \hline
+\ref{Tab:ModelSelection}.2 &  &  &  &  \\ 
+   & (0 + Trade | Population) & 0.00 & 0.00 & 0.99 \\ 
+   & 0 + Trade & -4.78 & 2.76 & 0.01 \\ 
+   & 0 + Population & -48.37 & 9.20 & 0.00 \\ 
+   & Mean & -54.84 & 9.07 & 0.00 \\ 
+   \hline
+\ref{Tab:ModelSelection}.3 &  &  &  &  \\ 
+   & (0 + Trade + Function1..9 | Population) & 0.00 & 0.00 & 0.99 \\ 
+   & 0 + Trade + Function1..9 & -4.73 & 3.71 & 0.01 \\ 
+   & (0 + Trade | Population) & -14.38 & 5.65 & 0.00 \\ 
+   & 0 + Trade & -19.16 & 6.44 & 0.00 \\ 
+   & 0 + Function1..9 & -52.41 & 9.07 & 0.00 \\ 
+   & 0 + Population & -62.75 & 9.80 & 0.00 \\ 
+   & Mean & -69.22 & 9.65 & 0.00 \\ 
+   \hline
+\ref{Tab:ModelSelection}.4 &  &  &  &  \\ 
+   & (0 + Trade | Population) & 0.00 & 0.00 & 0.69 \\ 
+   & (0 + Trade + Symbolism | Population) & -0.85 & 1.38 & 0.30 \\ 
+   & 0 + Trade & -4.78 & 2.76 & 0.01 \\ 
+   & 0 + Trade + Symbolism & -4.96 & 2.99 & 0.00 \\ 
+   & 0 + Population & -48.37 & 9.20 & 0.00 \\ 
+   & Mean & -54.84 & 9.07 & 0.00 \\ 
+   & 0 + Symbolism & -55.84 & 9.04 & 0.00 \\ 
+   \hline
+\ref{Tab:ModelSelection}.5 &  &  &  &  \\ 
+   & 0 + Trade + Population & 0.00 & 0.00 & 0.90 \\ 
+   & 0 + Trade & -17.91 & 6.22 & 0.10 \\ 
+   & 0 + Population & -86.73 & 11.70 & 0.00 \\ 
+   & Mean & -108.38 & 12.93 & 0.00 \\ 
+  \end{tabular}
+\endgroup
+\caption{Leave-one-out model selection results including expected log-predictive density differences, standard errors and Akaike weights. 1-4 have taphonomic signature as the outcome, while 5 has component materials as the outcome. Model definitions provided in BRMs Linear syntax (in some cases reported analyses were coded using equivalent non-linear syntax, see ESM for details)} 
+\label{Tab:ModelSelection}
+\end{table}

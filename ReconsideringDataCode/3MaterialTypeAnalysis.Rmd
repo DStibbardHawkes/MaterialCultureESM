@@ -1,0 +1,215 @@
+---
+title: "Material Analysis"
+output: html_notebook
+---
+
+In our first analysis, and investigated the factors which influenced the probability that any artefact in our sample contained at least one component with a moderate or strong taphonomic signature. Here we explore material use. Both these outcome variables are related, but investigating material choice affords us a more information about the influence of ecology. Let's start by once again loading our packages.
+
+```{r}
+library(tidyverse) #Intuative data wrangling.
+library(brms) #Summon STAN for exciting Bayesian models with simple syntax. 
+library(rstudioapi) #Allows us to use RStudio functions.
+library(ggplot2) #Lovely plots for lovely people.
+library(ggridges) #Adds ridgeplots to ggplot. 
+library(patchwork) #Easily stitch figures together with operators.
+library(tidybayes) #Tidyverse-inspired tools for STAN outputs.
+
+```
+
+Now let's use RStudio to load our dataset. This code will set the working directory to the location where you've saved this file, so make sure it's somewhere sensible, rather than just your downloads folder. As before, to avoid filesystem errors, ensure your current working directory contains a folder for model fits named 'fits' and a folder for tables and figures named 'TablesAndFigures'.
+
+```{r}
+setwd(dirname(getActiveDocumentContext()$path))     
+load("materialculture.rda")
+```
+
+Some of our functions make use of psuedo-random processes. To ensure your results match mine, let's keep things consistent by setting a RNG seed.
+
+```{r}
+set.seed(42)
+```
+
+
+## Artefact Material Selection
+
+This time our outcome variable is a three level factor. We have coded our component materials as either plant-derived, animal-derived or inorganic (e.g. stone; metal; plastics). Our dataset contains much more granular information about specific material type. To see how exactly each material was coded, please refer to the data preparation RMD file 
+
+These data are long-form, which mean that each tool contributes as many rows as it has materials. We're interested in the relative probabilities of selecting a particular type of material between populations. Let's start with the null model. We're going to use the same flat priors we used in our taphonomic signature analysis. 
+
+Note: this is a multinomial model with three categories in the outcome. These are conceptually and syntactically tricky. If lost I recommend consulting Solomon Kurz's superb [code-conversion](https://bookdown.org/content/4857/god-spiked-the-integers.html#multinomial-and-categorical-models) of Rethinking 2nd Ed.
+
+```{r, error = F, warning = F}
+mt2.01 <- 
+  brm(data = dlong, 
+      family = categorical(link = logit),
+      AMV ~ 1,
+      prior(normal(0, 1.5), class = Intercept),
+      iter = 2000, warmup = 1000, cores = 4, chains = 4,
+      seed = 42,
+      file = "fits/mt2.01")
+
+loo2.01 <- loo(mt2.01)
+```
+
+This appears to be running smoothly, so let's add our predictor variables.
+
+```{r, error = F, warning = F}
+
+mt2.02 <-
+      brm(data = dlong, 
+      family = categorical(link = logit),
+      AMV ~ 0 + Traded,
+      prior(normal(0, 1.5), class = b),
+      iter = 2000, warmup = 1000, cores = 4, chains = 4,
+      seed = 42,
+      file = "fits/mt2.02")
+
+loo2.02 <- loo(mt2.02)
+
+mt2.03 <-
+  brm(data = dlong, 
+      family = categorical(link = logit),
+      AMV ~ 0 + Population,
+      prior(normal(0, 1.5), class = b),
+      iter = 2000, warmup = 1000, cores = 4, chains = 4,
+      seed = 42,
+      file = "fits/mt2.03")
+
+loo2.03 <- loo(mt2.03)
+
+mt2.04 <-  
+    brm(data = dlong, 
+      family = categorical(link = logit),
+      AMV ~ 0 + Population + Traded,
+      prior(normal(0, 1.5), class = b),
+      iter = 2000, warmup = 1000, cores = 4, chains = 4,
+      seed = 42,
+      file = "fits/mt2.04")
+
+loo2.04 <- loo(mt2.04)
+
+```
+
+Now lets run a model selection. I expect the full model will be preferred.
+
+```{r}
+
+ms5 <- loo_compare(loo2.01, loo2.02, loo2.03, loo2.04)[,1:2] %>% 
+  round(2) %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>%
+  arrange(rowname) %>%
+  column_to_rownames("rowname")
+
+ms5 <- model_weights(mt2.01,mt2.02,mt2.03,mt2.04) %>% 
+  round(2) %>% 
+  as.data.frame() %>% 
+  rownames_to_column() %>%
+  arrange(rowname)  %>%
+  cbind(ms5) %>%
+  rename(
+    Weights = ".",
+    "ELPD Difference" = elpd_diff,
+    "SE Difference" = "se_diff"
+  ) %>%
+  arrange(desc(`ELPD Difference`))  %>%
+  relocate(Weights, .after = "SE Difference")
+
+ms5
+```
+
+Given the previous analyses of taphonomic signature, this is not unexpected. After all, while our outcome variables are different (Material Type vs Taph Sig), they contain similar information. As we can see, and unsurprisingly, the full model is strongly preferred. This constitutes good evidence that different population use different materials and the materials obtained from trade are different to the ones which aren't.
+
+Let's briefly inspect our estimates from the full model using the MCMC plot function
+
+```{r}
+mcmc_plot(mt2.04)
+```
+
+These outputs are hard to intuit: The estimates represent departures from the 'animal' material category, which is defined as '0'. For a full explanation, please consult 11.3.1-2 of the BRMs rethinking conversion: https://bookdown.org/content/4857/god-spiked-the-integers.html#predictors-matched-to-outcomes.
+
+It is possible to recover the estimates for animal, and convert our estimates into probability scale, by doing something similar to Kurz's manual transformation of his b11.13io model outputs.
+
+However, frustratingly, despite specifying a zero intercept, BRMs has not given us a traded 0 estimate. To solve this problem it would be possible to rewrite the model using non-linear syntax, but reparametarising multinomial models is tricky.
+
+Instead, for our manuscript outputs, we use a different solution. Rather than using HDCI as previously, we're going to use the fitted function to give point estimates on the probability scale. After some testing, I am satisfied that these point estimates are identical to the outputs yielded from the HDCI function on probability-scale transformed estimates. The code is also more economical than our earlier analyses, which is a mercy. 
+
+```{r}
+
+nd <- tibble(
+  Traded = c(0, 1, 0, 1, 0, 1),
+  Population = c("G/ana", "G/ana", "Hadza", "Hadza", "Mbuti", "Mbuti")
+)
+
+
+E2.04 <- fitted(mt2.04, newdata = nd, probs = c(.05,.95))[,,1] %>%
+  cbind(nd) %>%
+  mutate(
+    Y = "Animal"
+  ) 
+
+E2.04 <- fitted(mt2.04, newdata = nd, probs = c(.05,.95))[,,2] %>%
+  cbind(nd) %>%
+  mutate(
+    Y = "Mineral"
+  ) %>% 
+  rbind(E2.04)
+  
+E2.04 <- fitted(mt2.04, newdata = nd, probs = c(.05,.95))[,,3] %>%
+  cbind(nd) %>%
+  mutate(
+    Y = "Vegetable"
+  ) %>% 
+  rbind(E2.04)
+
+E2.04 %<>%
+  arrange(by_group = Y) %>%
+  mutate_if(is.double, round, digits = 2) %>%
+  rename(
+    Material = Y
+  )
+
+
+E2.04$Traded <- recode(E2.04$Traded, "0" = "NoTrade", "1" = "Trade")
+
+E2.04
+
+  
+  
+```
+
+As we can see, these fitted point estimates are substantially easier to understand. Because we have point estimates, rather than sampled distributions, we'll use bars plots, rather than density plots this time to graph our findings.
+
+```{r}
+E2.04 %>%
+ggplot(aes(x=Estimate, color = Population, y = Population)) +
+  geom_point() + 
+  geom_errorbar(aes(xmin=Q5, xmax=Q95), width=0, lwd = 1) +
+  theme_bw(base_size=10) +
+  facet_grid(Traded~Material, labeller = label_parsed) +
+  xlab("Probability")
+```
+
+As you can see, for artefacts which don't have traded components, all populations make similarly little use of mineral-derived materials. The Mbuti make substantially less use of animal-derived materials and more use of plant-derived materials than the other two populations. The Hadza also make more use of plants and less use of animals than the G//ana though there is some overlap in the distributions. So concludes our analysis. 
+
+## Save and Session Info
+
+Finally lets save our outputs.
+
+```{r}
+save(list =c("E2.04", "ms5", 
+             #Output files from the present analysis
+             "d", "t", "dlong", "dfull",
+             #Output files from our data preperation document (repeated because the save function overwrites the existing rda file)
+             "ps1.01", "ps1.02", "ps1.04", "ps1.06", "ps1.07", "ps1.10", "ms1","ms2","ms3","ms4"
+              #Output files from our taphonomic signature analysis (repeated because the save function overwrites the existing rda file)
+             ),
+     file = "materialculture.rda")
+
+```
+
+...and print our our session info.
+
+```{r}
+sessionInfo()
+```

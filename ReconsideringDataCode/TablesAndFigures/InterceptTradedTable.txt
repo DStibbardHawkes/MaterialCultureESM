@@ -1,0 +1,20 @@
+% latex table generated in R 4.3.2 by xtable 1.8-4 package
+% Thu Feb  1 15:15:27 2024
+\begin{table}[ht]
+\centering
+\begingroup\small
+\begin{tabular}{llrrr}
+  \hline
+Model \# & Parameter & Mean P & 5\% HDCI & 95\% HDCI \\ 
+  \hline
+Model \ref{Tab:TaphSigNoPop}.1 &  &  &  &  \\ 
+   & Intercept & 0.32 & 0.27 & 0.37 \\ 
+   \hline
+Model \ref{Tab:TaphSigNoPop}.2 &  &  &  &  \\ 
+   & NoTradedComponents & 0.15 & 0.11 & 0.19 \\ 
+   & TradedComponents & 0.82 & 0.75 & 0.90 \\ 
+  \end{tabular}
+\endgroup
+\caption{Mean posterior probabilities with 90 percent credibility intervals for artefact containing at least one component material with a moderate or strong taphonomic signature. Mean-only model first, followed by estimates for artefacts with and without components attained from trade.} 
+\label{Tab:TaphSigNoPop}
+\end{table}

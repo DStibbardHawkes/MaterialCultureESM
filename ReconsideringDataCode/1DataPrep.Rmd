@@ -1,0 +1,282 @@
+---
+title: "Hunter-Gatherer Material Culture Data Cleaning and Preperation"
+output: html_notebook
+---
+## Working Directory and Packages
+
+First let's set our working directory. For the following to work, please ensure that the data is in the same directory at this script, and that you are using RStudio, else navigate to the correct directory manually yourself. 
+
+
+```{r}
+library(rstudioapi) #Easily Set Working Directory
+library(tidyverse) #Tidy data wrangling
+library(readr)
+
+setwd(dirname(getActiveDocumentContext()$path))   
+```
+
+## Loading Data
+
+Now let's load our data, deal with the NAs and have a peek.
+
+```{r}
+
+dfull <- read.csv(file = "MatCultDat.csv", header = T)
+dfull[is.na(dfull)] <- ""
+names(dfull)[1] <- "Artifact" #Fix unexpected encoding error.
+dfull <- as_tibble(dfull)
+head(dfull)
+
+#The following didn't properly populate the blank colums with "".
+#dfull <- read_csv(file = "MatCultDat.csv", na = "")
+#dfull %>%
+#  mutate_all(~ replace_na(.x,""))
+#head(dfull)
+```
+## Artifact Material Summaries
+
+Over 70 columns! Justifiable?  It's possible. Easy to work with? No. Let's sort this out, and start by compressing some of the tools columns. First lets summarise: 
+
+* the number of unique materials in each tool (TotMaterials)
+* the total traded materials (TotTrade)
+* the presence of absense of traded materials (HasTraded)
+* the total materials that have a strong taphonomic signature (TotStrTaph)
+* the total materials that have any taphonomic signature (TotAnyTaph)
+
+The code is not optimal, but it works.
+
+```{r}
+dfull <- dfull %>%
+        mutate(
+          
+          #Logically sum populated Categories in in Materials variables 1:9
+          TotMaterials = (Mat.1 != "") + (Mat.2 != "") + (Mat.3 != "") + (Mat.4 != "") + (Mat.5 != "") + (Mat.6 != "") + (Mat.7 != "") + (Mat.8 != "") + (Mat.9 !=""),
+          
+          #Logically sum traded materials 
+          TotTrade = (Traded.1 == 1) + (Traded.2 == 1) + (Traded.3 == 1)+ (Traded.4 == 1) + (Traded.5 == 1) + (Traded.6 == 1) + (Traded.7 == 1) + (Traded.8 == 1)+ (Traded.9 == 1),
+          
+          #Create binary variable for tools with traded materials
+          HasTraded = as.numeric(TotTrade >0),
+          
+          #Logically Sum Strong Taphonomic Signature 
+          TotStrTaph = (TaphSig.1 == 1) + (TaphSig.2 == 1) + (TaphSig.3 == 1) + (TaphSig.4 == 1) + (TaphSig.5 == 1) + (TaphSig.6 == 1) + (TaphSig.7 == 1) +  (TaphSig.8 == 1) + (TaphSig.9 == 1),
+          
+          #Ditto with any Taphonomic Signature (e.g. eggshells)
+          TotAnyTaph = (TaphSig.1 >0) + (TaphSig.2 >0) + (TaphSig.3 >0) + (TaphSig.4 >0) + (TaphSig.5 >0) + (TaphSig.6 >0) + (TaphSig.7 >0) +  (TaphSig.8 >0) + (TaphSig.9 >0),
+          
+          #Create binary variable for tools with any component with a strong taphanomic signature
+          HasStrTaph = as.numeric(TotStrTaph >0),        
+          
+          #Create binary variable for tools with any component with a strong or moderate taphanomic signature
+          HasTaph = as.numeric(TotAnyTaph >0)
+          )
+
+```
+
+## Artifact Function
+
+Populations and tool functions variables should be factors.
+
+```{r}
+dfull <- dfull %>%
+    mutate(
+      Population = as_factor(Population),
+      Function1 = as_factor(Function1),
+      Function2 = as_factor(Function2),
+      Function3 = as_factor(Function3)
+    )
+```
+
+There are a lot of levels here. These categories are nice and specific, but there are too many for a useful analysis, so let's collapse them. Also we'll remove 'thermoregulation' because it's only listed as a secondary function of a couple of artefacts. 
+
+```{r, warning = FALSE}
+
+#This isn't pretty however you slice it, but easier to turn it into a function.
+
+CollapseFun <- function(x) {
+  fct_collapse(x,
+  ClothingProtection = c("Protection","Clothing"),
+  CookingConsumption = c("Utensil",  "Cooking",  "Imbibe Drug", "Fire Starter", "Food Processing"),
+  Foraging = c("Climbing", "Hunting Trap", "Path Finding/Making", "Extractive Foraging", "Hunting Weapon"),
+  FurnitureShelter = c("Furniture","Shelter","Sleeping Surface"),
+  GroomingHygieneMedicinal = c("Medical Tool", "Grooming/Hygiene"),
+  PlayLeisure = c("Toy/Game", "Musical Instrument"),
+  RitualAdornment = c("Ritual","Jewelry/Adornment", "Medical Magic"),
+  ToolMatPrep = c("Binding/Adhesive", "Material Preperation"),
+  StorageTransport = c("Storage and Transport", "Tool Holder")
+)
+}
+
+#And then apply that function to each variable. Fun2 and Fun3 have missing categories, which will yield ghastly error messages, which I've hidden.
+
+dfull <- dfull %>% mutate(
+  Fun1 = CollapseFun(Function1),
+  Fun2 = CollapseFun(Function2),
+  Fun3 = CollapseFun(Function3)
+)
+
+
+#Lets strip out the thermoregulation code. Warmth is certainly important but not super interesting for our analysis. 
+#I'm using base syntax here because that's what I know.
+
+dfull$Fun2[dfull$Fun2 == "Thermoregulation"] <- ""
+dfull$Fun3[dfull$Fun3 == "Thermoregulation"] <- ""
+
+#Then lets collate all three variables and have a look at them to see if we've the right number of categories.
+
+F <- c(as.character(dfull$Fun1),as.character(dfull$Fun2), as.character(dfull$Fun3))
+F <- as.factor(F)
+fct_count(F)
+
+#Finally we'll remove our makeshift function and variable. 
+rm(CollapseFun)
+rm(F)
+
+```
+
+Finally, as there are some tools with multiple categories, we'll create a dummy variable for each of these eleven categories. Tempting to throw out illumination as it's only has an $n$ of four but we can do that later simply by excluding from the analysis.
+
+```{r}
+
+dfull <- dfull %>%
+mutate(
+  ClothingProtection = if_else(Fun1 == "ClothingProtection" | Fun2 == "ClothingProtection" | Fun3 == "ClothingProtection", 1, 0),
+  
+      CookingConsumption = if_else(Fun1 == "CookingConsumption" | Fun2 == "CookingConsumption" | Fun3 == "CookingConsumption", 1, 0),
+  
+  Foraging = if_else(Fun1 == "Foraging" | Fun2 == "Foraging" | Fun3 == "Foraging", 1, 0),
+  
+    FurnitureShelter = if_else(Fun1 == "FurnitureShelter" | Fun2 == "FurnitureShelter" | Fun3 == "FurnitureShelter", 1, 0),
+  
+  
+    GroomingHygieneMedicinal = if_else(Fun1 == "GroomingHygieneMedicinal" | Fun2 == "GroomingHygieneMedicinal" | Fun3 == "GroomingHygieneMedicinal", 1, 0),
+  
+    Illumination = if_else(Fun1 == "Illumination" | Fun2 == "Illumination" | Fun3 == "Illumination", 1, 0),
+  
+    PlayLeisure = if_else(Fun1 == "PlayLeisure" | Fun2 == "PlayLeisure" | Fun3 == "PlayLeisure", 1, 0),
+  
+    RitualAdornment = if_else(Fun1 == "RitualAdornment" | Fun2 == "RitualAdornment" | Fun3 == "RitualAdornment", 1, 0),
+  
+    StorageTransport = if_else(Fun1 == "StorageTransport" | Fun2 == "StorageTransport" | Fun3 == "StorageTransport", 1, 0),
+  
+    ToolMatPrep = if_else(Fun1 == "ToolMatPrep" | Fun2 == "ToolMatPrep" | Fun3 == "ToolMatPrep", 1, 0),
+)
+
+```
+
+## Material Types
+
+We have a lot of information on tool material types, some of which is lost when considering artefacts as whole tools. Let's pivot these materials into longform and examine them individually.
+
+```{r}
+dlong <- dfull %>% 
+  gather(v, value, Mat.1:Supposition.9)%>% 
+  separate(v, c("col","var")) %>% 
+  arrange(ID) %>% 
+  spread(col, value) %>%
+  filter(Mat != "") #>%
+#  filter(Population == "Hadza" | Population  == "Mbuti" | Population  =="G/ana")
+
+
+fct_count(factor(dlong$Mat))
+```
+
+Once again, many of these descriptions are informative but too specific for useful analysis. I'm going to recode using the much broader categories of 'animal-derived', 'plant-derived' or 'inorganic'. There's a reason this is a good opening gambit for twenty questions. Once again we'll write a function to do this. 
+
+```{r}
+
+AnVegMin <- function(x){
+  case_when(
+x == "Feather" | x == "Sinew" | x == "Fat" | x == "Leather" | x == "Wax" | x == "Shell" | x == "Fur" | x == "Scale" | x == "Horn" | x == "Bone" | x == "Egg Shell" | x == "Blood" | x == "Insect" ~ "Animal",
+
+x == "Wood" | x == "Sap/Plant Extract" | x == "Twine" | x == "Bark" | x == "Gourd" | x == "Seed/Nut" | x == "Paper" | x == "Cotton" | x == "Grass/Reed" | x == "Fruit" | x == "Cloth" | x == "Plant Fibre" | x == "Stalk" | x == "Fungus" | x == "Plant" | x == "Cord" | x == "Plant Extract" | x == "Leaf" | x == "Legume" | x == "Sticks" | x == "Vine" | x == "Flower" | x == "Twig" ~ "Vegetable",
+
+x == "Iron" | x == "Ash" | x == "Stone" | x == "Glass" | x == "Metal" | x == "Steel" | x == "Plastic" | x == "Copper" | x == "Brass" | x == "Clay" | x == "Wire" | x == "Mud/Soil" | x == "Aluminum" | x == "Tire" | x == "Tin" ~ "Mineral",
+    
+x == "" | x == "XXX" ~ ""
+  )
+}
+
+#Difficult decisions were: Tyres coded as mineral, because much rubber synthetic. Ash coded as mineral for want of a better category. Cloth coded as plant because all three mentions of cloth v. probably cotton or linen. Fungus coded as vegetable. Technically fungi aren't plants but if you eat that much lignen you are what you eat.
+
+
+dlong <- dlong %>%
+  mutate(AMV = AnVegMin(Mat)) 
+
+fct_count(factor(dlong$AMV))
+
+rm(AnVegMin)
+
+```
+
+Good, that worked. We've can already get an inkling from these categories that most material culture is biotic and perishable. But let's not jump the horse.
+
+## Populations
+
+There are a lot of cases from various incomplete sources. Lets limit our study to the three best-described populations, the Hadza, Mbuti and G//ana. We'll not include the Ju/Hoansi records from Lee here, as these were partial, and incomplete compared to the Kyoto sources; but I've chosen to include them in the associated .csv file in case of interest.
+
+```{r}
+
+dfull <- dfull %>%
+        filter(Population == "Hadza" | Population  == "Mbuti" | Population  =="G/ana")
+dlong <- dlong %>%
+        filter(Population == "Hadza" | Population  == "Mbuti" | Population  =="G/ana")
+
+```
+
+## Variables
+
+Now lets select only those variables which are to be used used in our analyses.
+
+```{r}
+d <- dfull %>%
+  select(
+    Artifact, Population, Fun1, Fun2, Fun3, TotMaterials, TotTrade, HasTraded, TotStrTaph, TotAnyTaph, HasStrTaph, HasTaph, Symbolism, ClothingProtection, CookingConsumption, Foraging, FurnitureShelter, GroomingHygieneMedicinal, Illumination, PlayLeisure, RitualAdornment, StorageTransport, StorageTransport, ToolMatPrep)
+
+head(d)
+```
+
+## Outliers
+
+A couple of cases in our data were outliers and caused Pareto K errors when we ran leave-one-out cross validation. These were tire sandals and clay pots. Clay pots are weird because they aren't recorded for all populations, have a strong taphonomic signature and yet are untraded. This is no call to throw them out though. Clay is an important material with a deep history of use. The tire sandals were an outlier because they're a rare clothing item that is made from traded material, has a strong taphonomic signature and only appear in a single population (the Hadza). They're funky and do, I think, represent a genuine outlier with the potential to bias our estimates so I've chosen to exclude them. 
+
+
+```{r}
+
+d <- d %>% 
+  filter(Artifact != "Tire Sandals")
+
+```
+
+
+## Non-Traded Artifacts
+
+Lets create a subset of our data that excludes tools which have a traded component.
+
+```{r}
+t <- d %>%
+  filter(HasTraded != 1)
+
+```
+
+
+## Save and Session Info
+
+That should wrap up our data wrangling. I've left page numbers, alongside occasional notes and quotations in the datafile, for anyone wanting more info. The raw data are interesting in their own right, simply as a window into forager material culture.
+
+But for now we'll wrap this up. Let's save our datafile for analysis and print out our session info.
+
+```{r}
+save(list =c("d", "t", "dlong", "dfull"),
+     file = "materialculture.rda")
+
+sessionInfo()
+# load("materialculture.rda")
+
+```
+
+
+
+
+
+
